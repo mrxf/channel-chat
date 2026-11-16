@@ -1,0 +1,18 @@
+index.html
+  h_595af853e379f3 112-114,219
+src/main.js
+  h_595af853e379f3 923,1045,1056-1066,1086,1134-1138,1350-1361,1447,1465-1473,1763-1765,1772
+src/style.css
+  h_595af853e379f3 306-308
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "4474bb3f69ade954f07bcda3bcbb608d981e739f",
+  "prompts": {},
+  "humans": {
+    "h_595af853e379f3": {
+      "author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

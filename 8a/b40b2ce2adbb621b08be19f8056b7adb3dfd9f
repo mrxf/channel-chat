@@ -1,0 +1,47 @@
+src-tauri/src/lib.rs
+  s_ca2b52fece431a::t_ba98762ca7fe74 22,30,32-33,72-76,78,96
+src-tauri/src/secret.rs
+  s_ca2b52fece431a::t_1345d708527fe5 2,52,56-91
+.github/workflows/release.yml
+  s_ca2b52fece431a::t_0f2f5fcd5ddcd6 1-207
+README.md
+  s_ca2b52fece431a::t_14214c982f06e2 3,7,9-10,13-14,25-36,72-81,84-86,89-99,104,157-158
+package.json
+  s_ca2b52fece431a::t_72b33d4f8b146a 6,15
+scripts/bump.mjs
+  s_ca2b52fece431a::t_313b2c6eda7bd7 2,13,35-38
+scripts/release.mjs
+  s_ca2b52fece431a::t_65f0e88584226c 1-35
+server/.dockerignore
+  s_ca2b52fece431a::t_6f74f1d41f389e 1-4
+server/Dockerfile
+  s_ca2b52fece431a::t_7a5138bb6b8c20 1-15
+server/index.js
+  s_ca2b52fece431a::t_2032279057af94 4,18
+src-tauri/tauri.conf.json
+  s_ca2b52fece431a::t_0c633c13bf22be 37
+src-tauri/tauri.windows.conf.json
+  s_ca2b52fece431a::t_40235634826f07 1-14
+src/main.js
+  s_ca2b52fece431a::t_8d737180e6a0bd 354-357,985
+src/native.js
+  s_ca2b52fece431a::t_cf572fa58e4ee7 6-8,16-17,37,55,62
+src/style.css
+  s_ca2b52fece431a::t_651ef4c2b09df0 123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "8ab40b2ce2adbb621b08be19f8056b7adb3dfd9f",
+  "prompts": {},
+  "sessions": {
+    "s_ca2b52fece431a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "47a63cd0-8d69-48e0-831d-63e720fc76f8",
+        "model": "unknown"
+      },
+      "human_author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

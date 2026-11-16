@@ -1,0 +1,260 @@
+// 设置：会话设置（全房间同步）+ 本机偏好 + 安全信息
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../chat/chat_controller.dart';
+import '../chat/models.dart';
+import '../core/native.dart';
+import '../core/net.dart';
+import '../core/prefs.dart';
+import '../core/version.dart';
+import 'theme.dart';
+
+class SettingsPage extends StatelessWidget {
+  const SettingsPage({super.key, required this.chat, required this.prefs, required this.onLeave});
+  final ChatController chat;
+  final Prefs prefs;
+  final VoidCallback onLeave;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    return Scaffold(
+      appBar: AppBar(title: const Text('设置', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600))),
+      body: ListenableBuilder(
+        listenable: Listenable.merge([chat, prefs]),
+        builder: (context, _) {
+          final cfg = chat.cfg;
+          final fp = chat.session?.fingerprint ?? '';
+          return ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 32), children: [
+            const _Section('会话', note: '修改后同步给房间里的所有人'),
+            _Card(children: [
+              _Row(
+                title: '保留轮数',
+                subtitle: '同一个人连续发的算一轮，更早且已读的消息自动焚毁',
+                trailing: _Stepper(value: cfg.keep, onChanged: (v) => chat.setCfg(keep: v)),
+              ),
+              _Row(
+                title: '已读后焚毁',
+                subtitle: '消息被读完后倒计时清除',
+                below: _Segments<int>(values: ttlOptions, selected: cfg.ttl, label: ttlLabel, onChanged: (v) => chat.setCfg(ttl: v)),
+              ),
+              _Row(
+                title: '图片 / 视频查看时长',
+                subtitle: '图片打开后、视频播完后多少秒焚毁',
+                below: _Segments<int>(values: mviewOptions, selected: cfg.mview, label: (v) => '${v}s', onChanged: (v) => chat.setCfg(mview: v)),
+              ),
+            ]),
+            const _Section('本机'),
+            _Card(children: [
+              _Row(
+                title: '外观',
+                below: _Segments<ThemeMode>(
+                  values: const [ThemeMode.system, ThemeMode.light, ThemeMode.dark],
+                  selected: prefs.themeMode,
+                  label: (m) => switch (m) { ThemeMode.light => '浅色', ThemeMode.dark => '深色', _ => '跟随系统' },
+                  onChanged: prefs.setThemeMode,
+                ),
+              ),
+              _Row(
+                title: '新消息通知',
+                subtitle: 'App 在后台时提醒，不显示内容和发送者',
+                trailing: Switch(
+                  value: prefs.notify,
+                  onChanged: (v) {
+                    prefs.setNotify(v);
+                    if (v) Native.requestNotifyPermission();
+                  },
+                ),
+              ),
+              _Row(
+                title: '禁止截屏',
+                subtitle: '截屏、录屏、最近任务缩略图里都是空白',
+                trailing: Switch(
+                  value: prefs.protect,
+                  onChanged: (v) {
+                    prefs.setProtect(v);
+                    Native.setSecure(v);
+                  },
+                ),
+              ),
+              _Row(title: '震动反馈', trailing: Switch(value: prefs.haptics, onChanged: prefs.setHaptics)),
+            ]),
+            const _Section('安全'),
+            _Card(children: [
+              _Row(
+                title: '口令指纹',
+                subtitle: '双方指纹一致，说明口令相同',
+                trailing: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: fp));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制指纹')));
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Text(
+                      RegExp('.{1,4}').allMatches(fp).map((m) => m[0]).join(' '),
+                      style: TextStyle(fontFamily: monoFamily, fontSize: 15, fontWeight: FontWeight.w600, color: p.text, letterSpacing: 1),
+                    ),
+                  ),
+                ),
+              ),
+              _Row(
+                title: '服务器',
+                subtitle: chat.serverName.isEmpty ? null : chat.serverName,
+                trailing: Text(chat.wsUrl != null ? shortServer(chat.wsUrl!) : '', style: TextStyle(fontFamily: monoFamily, fontSize: 13, color: p.muted)),
+              ),
+              _Row(title: '版本', trailing: Text('v$appVersion', style: TextStyle(fontSize: 14, color: p.muted))),
+            ]),
+            const SizedBox(height: 24),
+            OutlinedButton.icon(
+              onPressed: onLeave,
+              icon: const Icon(Icons.logout_rounded, size: 19),
+              label: const Text('退出会话'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: p.bad,
+                side: BorderSide(color: p.bad.withValues(alpha: 0.35)),
+                minimumSize: const Size.fromHeight(50),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text('退出后，内存里的所有消息立即清除。本机只保存名称、服务器地址和偏好设置。', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: p.muted, height: 1.5)),
+          ]);
+        },
+      ),
+    );
+  }
+}
+
+class _Section extends StatelessWidget {
+  const _Section(this.title, {this.note});
+  final String title;
+  final String? note;
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 22, 6, 10),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: p.muted, letterSpacing: 0.3)),
+        if (note != null) ...[const SizedBox(width: 8), Expanded(child: Text(note!, style: TextStyle(fontSize: 11.5, color: p.muted.withValues(alpha: 0.8))))],
+      ]),
+    );
+  }
+}
+
+class _Card extends StatelessWidget {
+  const _Card({required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    return Container(
+      decoration: BoxDecoration(color: p.panel, borderRadius: BorderRadius.circular(18), border: Border.all(color: p.line.withValues(alpha: 0.7))),
+      child: Column(children: [
+        for (var i = 0; i < children.length; i++) ...[
+          if (i > 0) Divider(indent: 16, endIndent: 16, color: p.line.withValues(alpha: 0.7)),
+          children[i],
+        ],
+      ]),
+    );
+  }
+}
+
+class _Row extends StatelessWidget {
+  const _Row({required this.title, this.subtitle, this.trailing, this.below});
+  final String title;
+  final String? subtitle;
+  final Widget? trailing;
+  final Widget? below;
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: TextStyle(fontSize: 15, color: p.text, fontWeight: FontWeight.w500)),
+              if (subtitle != null) ...[const SizedBox(height: 3), Text(subtitle!, style: TextStyle(fontSize: 12.5, color: p.muted, height: 1.4))],
+            ]),
+          ),
+          if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+        ]),
+        if (below != null) ...[const SizedBox(height: 12), below!],
+      ]),
+    );
+  }
+}
+
+class _Stepper extends StatelessWidget {
+  const _Stepper({required this.value, required this.onChanged});
+  final int value;
+  final ValueChanged<int> onChanged;
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    Widget btn(IconData icon, int delta) => IconButton(
+          visualDensity: VisualDensity.compact,
+          onPressed: (value + delta).clamp(1, 50) == value
+              ? null
+              : () {
+                  HapticFeedback.selectionClick();
+                  onChanged(value + delta);
+                },
+          icon: Icon(icon, size: 18),
+        );
+    return Container(
+      decoration: BoxDecoration(color: p.bubble, borderRadius: BorderRadius.circular(12)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        btn(Icons.remove_rounded, -1),
+        SizedBox(width: 28, child: Text('$value', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: p.text))),
+        btn(Icons.add_rounded, 1),
+      ]),
+    );
+  }
+}
+
+class _Segments<T> extends StatelessWidget {
+  const _Segments({required this.values, required this.selected, required this.label, required this.onChanged});
+  final List<T> values;
+  final T selected;
+  final String Function(T) label;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(color: p.bubble, borderRadius: BorderRadius.circular(12)),
+      child: Row(children: [
+        for (final v in values)
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                if (v == selected) return;
+                HapticFeedback.selectionClick();
+                onChanged(v);
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: v == selected ? p.panel : Colors.transparent,
+                  borderRadius: BorderRadius.circular(9),
+                  boxShadow: v == selected ? const [BoxShadow(color: Color(0x14000000), blurRadius: 6, offset: Offset(0, 1))] : null,
+                ),
+                alignment: Alignment.center,
+                child: Text(label(v), style: TextStyle(fontSize: 13, fontWeight: v == selected ? FontWeight.w600 : FontWeight.w500, color: v == selected ? p.text : p.muted)),
+              ),
+            ),
+          ),
+      ]),
+    );
+  }
+}

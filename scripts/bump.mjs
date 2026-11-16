@@ -1,16 +1,18 @@
 #!/usr/bin/env node
-// 版本号统一来源：package.json（tauri.conf.json 直接引用它），同时同步 Cargo.toml 和 Cargo.lock。
+// 版本号统一来源：package.json（tauri.conf.json 直接引用它），同时同步 Cargo.toml、Cargo.lock 和移动端（mobile/）。
 //   node scripts/bump.mjs            → 补丁号 +1（1.2.3 → 1.2.4）
 //   node scripts/bump.mjs minor      → 1.2.3 → 1.3.0
 //   node scripts/bump.mjs major      → 1.2.3 → 2.0.0
 //   node scripts/bump.mjs 2.0.0      → 指定版本
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const pkgPath = root + 'package.json';
 const cargoPath = root + 'src-tauri/Cargo.toml';
 const lockPath = root + 'src-tauri/Cargo.lock';
+const pubspecPath = root + 'mobile/pubspec.yaml';
+const mobileVerPath = root + 'mobile/lib/core/version.dart';
 
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
 const arg = process.argv[2] || 'patch';
@@ -35,5 +37,14 @@ writeFileSync(cargoPath, cargo.replace(/^(\[package\][\s\S]*?^version\s*=\s*)"[^
 // Cargo.lock 里本项目那一条也一起改，免得提交后 CI 里又冒出一个改动
 const lock = readFileSync(lockPath, 'utf8');
 writeFileSync(lockPath, lock.replace(/(\[\[package\]\]\nname = "agent"\nversion = )"[^"]*"/, `$1"${next}"`));
+
+// 移动端：pubspec 的 versionName 跟随，versionCode（+N）每次递增，安卓才能覆盖安装
+if (existsSync(pubspecPath)) {
+  const pub = readFileSync(pubspecPath, 'utf8');
+  const build = Number(/^version:\s*[\d.]+\+(\d+)/m.exec(pub)?.[1] || 0) + 1;
+  writeFileSync(pubspecPath, pub.replace(/^version:.*$/m, `version: ${next}+${build}`));
+  const ver = readFileSync(mobileVerPath, 'utf8');
+  writeFileSync(mobileVerPath, ver.replace(/appVersion = '[^']*'/, `appVersion = '${next}'`));
+}
 
 console.log(`版本号：${m[0]} → ${next}`);

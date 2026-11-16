@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 不参与云备份 / 设备迁移：本机偏好和加密保存的口令都只留在这台手机上 -->
+<data-extraction-rules>
+    <cloud-backup><exclude domain="root" /><exclude domain="sharedpref" /><exclude domain="database" /><exclude domain="file" /></cloud-backup>
+    <device-transfer><exclude domain="root" /><exclude domain="sharedpref" /><exclude domain="database" /><exclude domain="file" /></device-transfer>
+</data-extraction-rules>

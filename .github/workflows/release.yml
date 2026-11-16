@@ -1,4 +1,4 @@
-# 打包流水线：服务端 Docker 镜像 + macOS 客户端 + Windows 客户端，推送 v* tag 时自动创建 Release。
+# 打包流水线：服务端 Docker 镜像 + macOS / Windows 客户端 + Android 客户端，推送 v* tag 时自动创建 Release。
 #
 # 触发方式：
 #   - 推送 tag v1.2.3（`npm run release` 会自动做）：三端打包 → 推送镜像到 GHCR → 创建 GitHub Release
@@ -113,6 +113,64 @@ jobs:
           path: out/*
           if-no-files-found: error
 
+  android:
+    name: Android
+    needs: meta
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.2
+          channel: stable
+          cache: true
+
+      # 正式签名（推荐）：在仓库 Secrets 里配置 ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD。
+      # 没配置时用 CI 临时生成的 debug 签名：能安装，但每次签名不同，升级时需要先卸载旧版。
+      - name: Signing
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$KEYSTORE" ]]; then
+            echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/agent.jks"
+            printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$RUNNER_TEMP/agent.jks" "$STORE_PW" "$KEY_ALIAS" "$KEY_PW" > android/key.properties
+            echo "使用正式签名"
+          else
+            echo "::warning::未配置 ANDROID_KEYSTORE_BASE64，APK 使用 debug 签名（升级需先卸载旧版）"
+          fi
+
+      - name: Build
+        run: |
+          flutter pub get
+          flutter build apk --release --split-per-abi
+
+      - name: Collect
+        run: |
+          mkdir -p ../out
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "../out/Agent_${VERSION}_Android_arm64.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "../out/Agent_${VERSION}_Android_armv7.apk"
+          ls -lh ../out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-Android
+          path: out/*
+          if-no-files-found: error
+
   docker:
     name: Docker
     needs: meta
@@ -156,7 +214,7 @@ jobs:
 
   release:
     name: Release
-    needs: [meta, desktop, docker]
+    needs: [meta, desktop, android, docker]
     if: needs.meta.outputs.release == 'true'
     runs-on: ubuntu-latest
     env:
@@ -187,11 +245,14 @@ jobs:
           | macOS（Apple 芯片 + Intel） | \`Agent_${VERSION}_macOS_universal.dmg\` |
           | Windows 10/11 安装版 | \`Agent_${VERSION}_Windows_x64-setup.exe\` |
           | Windows 免安装版 | \`Agent_${VERSION}_Windows_x64_portable.exe\` |
+          | Android（绝大多数手机） | \`Agent_${VERSION}_Android_arm64.apk\` |
+          | Android（旧款 32 位手机） | \`Agent_${VERSION}_Android_armv7.apk\` |
           | 服务端（Node 18+） | \`channel-chat-server_${VERSION}.tar.gz\`，解压后 \`npm i && npm start\` |
 
           安装包没有签名：
           - **macOS**：第一次打开如果提示无法验证开发者，到「系统设置 → 隐私与安全性」点「仍要打开」，或者执行 \`xattr -cr /Applications/Agent.app\`。
           - **Windows**：SmartScreen 拦截时点「更多信息 → 仍要运行」。
+          - **Android**：安装时允许「安装未知来源应用」。手机端只连接已有服务器，不能自己开服务器。
 
           ## 服务端 Docker
 

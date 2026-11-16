@@ -1,12 +1,13 @@
 # private-chat
 
-局域网阅后即焚聊天：macOS / Windows 原生客户端（Tauri），界面伪装成 AI Agent 工作台，消息端到端加密。服务器只转发密文，不存储任何内容。
+局域网阅后即焚聊天：macOS / Windows 原生客户端（Tauri）+ Android 客户端（Flutter），界面伪装成 AI Agent 工作台，消息端到端加密。服务器只转发密文，不存储任何内容。
 
 ```
 private-chat/
 ├── server/        密文中继服务器（独立目录，可以单独拷到任何机器上运行，也有 Docker 镜像）
 ├── src/           客户端前端
 ├── src-tauri/     原生外壳（菜单栏 / 托盘、Dock 角标、通知）
+├── mobile/        Android 客户端（Flutter），只连接已有服务器，见 mobile/README.md
 └── .github/       打包流水线（Docker + macOS + Windows → GitHub Release）
 ```
 
@@ -135,6 +136,10 @@ npm run release current    # 不改版本号，直接给当前版本打 tag
 | 关闭窗口 | 只是隐藏，连接保持（开启了 **Local relay** 时本机中继服务也继续运行）。点 Dock 或菜单栏图标恢复，在菜单栏里选 Quit 退出 |
 | 本机开服 | 登录页点 **Host** 或设置里开启 **Local relay**（也可输入 `/host`），客户端内置 Rust 中继直接充当局域网服务器，无需安装 Node.js |
 | 命令 | `/cls` 清屏（仅自己），`/host` 开启/复制本机服务地址，`/clear` 清空当前会话（参与者一起清空），`/update` 检查更新，`/keep 3`，`/ttl 30`，`/hide`，`/leave` |
+
+## 移动端
+
+`mobile/` 是 Flutter 写的 Android 客户端，和桌面端在同一个房间里互通（同一服务器 + 同一口令）：群聊、私聊、已读回执、阅后即焚、图片 / 视频、拍一拍、房间设置同步都支持。界面是普通的对话界面，没有桌面端的伪装；不能自己开服务器。开发和打包见 [mobile/README.md](mobile/README.md)，发布时 APK 会一起出现在 Release 里。
 
 ## 服务器配置
 

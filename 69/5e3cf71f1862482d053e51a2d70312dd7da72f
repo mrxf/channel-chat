@@ -1,0 +1,23 @@
+package.json
+  s_d204de4f582d8f::t_35b1559bac16cc 3
+src-tauri/Cargo.lock
+  s_d204de4f582d8f::t_ff29671e6a134a 13
+src-tauri/Cargo.toml
+  s_d204de4f582d8f::t_5726b065b96b89 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "695e3cf71f1862482d053e51a2d70312dd7da72f",
+  "prompts": {},
+  "sessions": {
+    "s_d204de4f582d8f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9b5fe4a-ab54-4a98-b1f2-dbb037a869bd",
+        "model": "unknown"
+      },
+      "human_author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

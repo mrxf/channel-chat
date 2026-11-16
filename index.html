@@ -90,7 +90,6 @@
           <div class="conv-tag" id="conv-tag" hidden></div>
           <div class="spacer" data-tauri-drag-region></div>
           <button class="chip upd-chip" id="upd-chip" hidden title="发现新版本，点击查看并更新"></button>
-          <button class="chip ghost" id="wipe-btn" title="清屏：隐藏当前屏幕所有消息（仅本地）">Clear</button>
           <button class="chip ghost" id="share-btn" title="复制服务器地址（不含口令）">Share</button>
           <button class="icon ghost" id="settings-btn" title="Settings">⋯</button>
         </header>
@@ -109,6 +108,9 @@
               <button type="button" class="icon ghost" id="act-btn" title="动作（拍一拍）">＋</button>
               <button type="button" class="icon ghost" id="attach-btn" title="发送图片 / 视频（阅后即焚）">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l8-8"/></svg>
+              </button>
+              <button type="button" class="icon ghost wipe-btn empty" id="wipe-btn" title="清屏：隐藏当前屏幕所有消息（仅本地）" aria-label="Clear screen">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
               </button>
               <input type="file" id="file-input" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.m4v,.mov,.webm" multiple hidden />
               <span class="chip soft" id="ctx-chip">Context 1</span>
@@ -214,7 +216,7 @@
             <button type="button" id="clear-btn" title="清空当前会话（双方一起）">Clear context</button>
             <button type="button" id="leave-btn" class="danger">Leave</button>
           </div>
-          <div class="keys"><kbd>Esc</kbd> 伪装页 · <kbd>/cls</kbd> 清屏 · <kbd>/host</kbd> 本机服务 · <kbd>/clear</kbd> <kbd>/keep 3</kbd> <kbd>/ttl 30</kbd> <kbd>/leave</kbd></div>
+          <div class="keys"><kbd>Esc</kbd> 伪装页 · <kbd id="wipe-kbd">⌘K</kbd> / <kbd>/cls</kbd> 清屏 · <kbd>/host</kbd> 本机服务 · <kbd>/clear</kbd> <kbd>/keep 3</kbd> <kbd>/ttl 30</kbd> <kbd>/leave</kbd></div>
         </div>
         <div class="drop-hint"><div>Drop to attach<small>端到端加密 · 阅后即焚</small></div></div>
         <div class="toast" id="toast" hidden></div>

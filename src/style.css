@@ -303,6 +303,9 @@ pre code { background: none; padding: 0; color: inherit; font-size: 12.5px; }
   font-size: 15px; line-height: 1.5; max-height: 220px; padding: 2px 0;
 }
 .composer-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; margin-left: -6px; }
+.wipe-btn { transition: opacity 0.15s, background 0.15s, color 0.15s; }
+.wipe-btn.empty { opacity: 0.42; }
+.wipe-btn:not(.empty):hover { color: var(--bad); }
 .model { font-size: 12.5px; color: var(--muted); margin-right: 4px; }
 .send {
   width: 30px; height: 30px; border-radius: 9px; background: var(--accent); color: var(--accent-text);

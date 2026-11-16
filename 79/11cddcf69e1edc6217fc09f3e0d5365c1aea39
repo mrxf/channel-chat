@@ -1,0 +1,18 @@
+package.json
+  h_595af853e379f3 3
+src-tauri/Cargo.lock
+  h_595af853e379f3 13
+src-tauri/Cargo.toml
+  h_595af853e379f3 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "7911cddcf69e1edc6217fc09f3e0d5365c1aea39",
+  "prompts": {},
+  "humans": {
+    "h_595af853e379f3": {
+      "author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

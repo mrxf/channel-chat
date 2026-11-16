@@ -920,7 +920,7 @@ function addItem(it) {
   if (it.kind === 'media') setMediaStatus(it, it.status, 0);
   enforceKeep();
   updateUnread(!it.mine);
-  if (it.conv === state.active) scrollDown();
+  if (it.conv === state.active) { scrollDown(); updateWipeBtn(); }
   if (isDm(it.conv) && !document.querySelector(`#recents li[data-conv="${it.conv}"]`)) renderRecents();
   return it;
 }
@@ -1042,6 +1042,7 @@ function burn(it, instant = false) {
     }
   }
   updateUnread(false);
+  if (it.conv === state.active) updateWipeBtn();
   // 离线成员的私聊焚毁完了，侧栏里就不再显示
   if (isDm(it.conv) && !convPeer(it.conv)?.online && !convItems(it.conv).length) renderRecents();
 }
@@ -1052,6 +1053,17 @@ function burnConv(conv) {
   state.compacted.delete(conv);
   const t = threadEl(conv);
   if (t) t.innerHTML = '';
+  if (conv === state.active) updateWipeBtn();
+}
+
+/** 同步对话框左下角清屏图标的可用态（当前会话有可清内容且非伪装页时高亮） */
+function updateWipeBtn() {
+  const btn = $('#wipe-btn');
+  if (!btn) return;
+  const hasContent = !state.boss && (
+    convItems(state.active).length > 0 || !!threadEl(state.active)?.querySelector(':scope > :not(.burning)')
+  );
+  btn.classList.toggle('empty', !hasContent);
 }
 
 /** 清屏：立即清空自己当前屏幕上的所有消息与提示（仅本地，不影响对方屏幕；未读消息顺带发回执） */
@@ -1071,6 +1083,7 @@ function wipeScreen(conv = state.active) {
   state.compacted.delete(conv);
   const t = threadEl(conv);
   if (t) t.innerHTML = '';
+  if (conv === state.active) updateWipeBtn();
 }
 
 /** 手动清除单条消息（仅本地隐藏并清零内存；若是未读的对方消息则顺带发回执，避免对方也卡未读） */
@@ -1118,8 +1131,11 @@ function sys(html, conv = GROUP) {
   el.className = 'sys';
   el.innerHTML = `<span>⏺</span> ${html}`;
   threadOf(conv).appendChild(el);
-  if (conv === state.active) scrollDown();
-  setTimeout(() => { el.classList.add('fade'); setTimeout(() => el.remove(), 500); }, 8000);
+  if (conv === state.active) { scrollDown(); updateWipeBtn(); }
+  setTimeout(() => {
+    el.classList.add('fade');
+    setTimeout(() => { el.remove(); if (conv === state.active) updateWipeBtn(); }, 500);
+  }, 8000);
 }
 
 /* ================================================================
@@ -1331,7 +1347,18 @@ async function hostCommand() {
   }
 }
 
-$('#wipe-btn').onclick = () => wipeScreen();
+const wipeShortcutLabel = native.isMac ? '⌘K' : 'Ctrl+K';
+$('#wipe-btn').title = `清屏：隐藏当前屏幕所有消息（仅本地，${wipeShortcutLabel}）`;
+$('#wipe-kbd').textContent = wipeShortcutLabel;
+function triggerWipe() {
+  if (state.boss) return;
+  closePops();
+  wipeScreen();
+  // 清屏后立即把焦点保持在输入框，方便看完消息点清除后直接输入
+  $('#input').focus({ preventScroll: true });
+}
+$('#wipe-btn').addEventListener('mousedown', (e) => e.preventDefault());
+$('#wipe-btn').onclick = () => triggerWipe();
 $('#share-btn').onclick = async () => {
   const addr = await shareableServerAddr();
   toast((await copyText(addr)) ? `已复制服务器地址 ${addr}（口令请单独告诉对方）` : addr);
@@ -1417,6 +1444,7 @@ function setBoss(on) {
   if (target) $('#title').textContent = target.querySelector('.r-name')?.textContent || target.textContent;
   renderHeader();
   renderUpdateBadges();
+  updateWipeBtn();
   if (on) { closePops(); closeUpdModal(); }
   scrollDown();
 }
@@ -1434,7 +1462,15 @@ function switchConv(conv) {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#upd-modal').hidden) { closeUpdModal(); return; }
-  if ($('#main').hidden || e.key !== 'Escape') return;
+  if ($('#main').hidden) return;
+  if ((native.isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+    if (!state.boss && $('#upd-modal').hidden) {
+      e.preventDefault();
+      triggerWipe();
+    }
+    return;
+  }
+  if (e.key !== 'Escape') return;
   if (anyPopOpen()) { closePops(); return; }
   setBoss(!state.boss);
 });
@@ -1724,13 +1760,16 @@ function cleanupMedia(it) {
 }
 
 // 点击：单条清除 / 查看附件 / 放大
+$('#threads').addEventListener('mousedown', (e) => {
+  if (e.target.closest('.msg-clear')) e.preventDefault();
+});
 $('#threads').addEventListener('click', (e) => {
   const clearBtn = e.target.closest('.msg-clear');
   if (clearBtn) {
     const row = clearBtn.closest('.item');
     const it = row && state.items.find((i) => i.id === row.dataset.id);
     if (it) dismissItem(it);
-    else row?.remove();
+    else { row?.remove(); updateWipeBtn(); }
     return;
   }
   const card = e.target.closest('.item.media');

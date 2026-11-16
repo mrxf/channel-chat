@@ -1,6 +1,7 @@
 // 原生能力桥接：在 Tauri 中调用 Rust 命令；在浏览器中静默降级（便于调试）。
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { sealLocal, openLocal } from './crypto.js';
+import { GITHUB_REPO } from './config.js';
 
 const inTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
 const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
@@ -122,5 +123,53 @@ export const native = {
         new Notification(title, { body, silent: false });
       }
     } catch { /* ignore */ }
+  },
+
+  /** 检查 GitHub Releases 新版本；Tauri 走原生命令，浏览器调试走 fetch */
+  async checkUpdate(currentVersion) {
+    if (inTauri) return await invoke('update_check');
+    const r = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { Accept: 'application/vnd.github+json' },
+      cache: 'no-store',
+    });
+    if (!r.ok) throw new Error('连接 GitHub Releases 失败');
+    const rel = await r.json();
+    const latest = String(rel.tag_name || '').trim().replace(/^[vV]/, '');
+    const parse = (v) => v.split(/[-+]/)[0].split('.').map(Number);
+    const [ca, cb, cc] = parse(currentVersion);
+    const [la, lb, lc] = parse(latest);
+    const hasUpdate = [la - ca, lb - cb, lc - cc].find((d) => d !== 0) > 0;
+    return {
+      currentVersion,
+      latestVersion: latest,
+      hasUpdate: !!hasUpdate,
+      releaseUrl: rel.html_url || `https://github.com/${GITHUB_REPO}/releases/latest`,
+      notes: rel.body || '',
+      publishedAt: rel.published_at || '',
+      assetName: null,
+      assetSize: 0,
+      canAutoUpdate: false,
+    };
+  },
+
+  /** 自动下载、校验 SHA-256 并安装到就绪态，通过 Channel 实时回调进度 */
+  async installUpdate(onProgress) {
+    if (!inTauri) throw new Error('浏览器模式不支持自动更新');
+    const onEvent = new Channel();
+    onEvent.onmessage = (ev) => onProgress?.(ev);
+    await invoke('update_install', { onEvent });
+  },
+
+  cancelUpdate() {
+    if (inTauri) invoke('update_cancel').catch(() => {});
+  },
+
+  async restartToUpdate() {
+    if (inTauri) await invoke('update_restart');
+  },
+
+  openReleaseUrl(url = '') {
+    if (inTauri) invoke('update_open_url', { url }).catch(() => {});
+    else window.open(url || `https://github.com/${GITHUB_REPO}/releases/latest`, '_blank', 'noopener,noreferrer');
   },
 };

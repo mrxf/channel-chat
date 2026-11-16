@@ -582,11 +582,18 @@ function memberGone(p) {
   refreshLabels();
 }
 
+const isVerNewer = (cur, cand) => {
+  const p = (v) => String(v || '').replace(/^[vV]/, '').split(/[-+]/)[0].split('.').map(Number);
+  const [a1, b1, c1] = p(cur), [a2, b2, c2] = p(cand);
+  return ([a2 - a1, b2 - b1, c2 - c1].find((d) => d !== 0) || 0) > 0;
+};
+
 // 双方版本不一致时提示一次（旧版客户端不发送版本号）
 function checkPeerVersion(p, m) {
   const v = typeof m.v === 'string' && /^\d+\.\d+\.\d+$/.test(m.v) ? m.v : null;
   p.v = v;
   p.caps = Array.isArray(m.caps) ? m.caps.filter((c) => typeof c === 'string').slice(0, 10) : [];
+  if (v && isVerNewer(APP_VERSION, v) && !updState.info?.hasUpdate) checkForUpdate();
   if (v === APP_VERSION || p.warned) return;
   p.warned = true;
   const dm = hasCap(p, 'dm') ? '' : ' · 不支持私聊';
@@ -1202,6 +1209,7 @@ function command(text) {
   switch (cmd) {
     case '/cls': wipeScreen(); return true;
     case '/clear': clearConv(); return true;
+    case '/update': checkForUpdate({ manual: true }); return true;
     case '/keep': setCfg({ ...state.cfg, keep: arg }, true); return true;
     case '/ttl': setCfg({ ...state.cfg, ttl: arg }, true); return true;
     case '/leave': leave(); return true;
@@ -1221,7 +1229,8 @@ function setBoss(on) {
   document.querySelectorAll('#recents li').forEach((li) => li.classList.toggle('active', li === target));
   if (target) $('#title').textContent = target.querySelector('.r-name')?.textContent || target.textContent;
   renderHeader();
-  if (on) closePops();
+  renderUpdateBadges();
+  if (on) { closePops(); closeUpdModal(); }
   scrollDown();
 }
 
@@ -1237,6 +1246,7 @@ function switchConv(conv) {
 }
 
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#upd-modal').hidden) { closeUpdModal(); return; }
   if ($('#main').hidden || e.key !== 'Escape') return;
   if (anyPopOpen()) { closePops(); return; }
   setBoss(!state.boss);
@@ -1744,6 +1754,198 @@ $('#recents-reset').onclick = () => {
   renderPersona();
   toast('侧栏名称已恢复默认');
 };
+
+/* ================================================================
+ *  版本检测与自动下载重启更新（GitHub Releases）
+ * ================================================================ */
+const updState = { info: null, checking: false, phase: 'idle', pct: 0, downloaded: 0, total: 0, err: '' };
+const updBusy = () => ['downloading', 'verifying', 'installing'].includes(updState.phase);
+
+function formatNotes(md) {
+  const lines = String(md || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('|---') && !l.startsWith('```'));
+  if (!lines.length) return '<p class="muted">常规体验优化与问题修复。</p>';
+  return lines.slice(0, 40).map((line) => {
+    const safe = esc(line).replace(/`([^`]+)`/g, '<code>$1</code>');
+    if (/^#{1,3}\s+/.test(line)) return `<div class="upd-h">${safe.replace(/^#{1,3}\s+/, '')}</div>`;
+    if (/^[-*]\s+/.test(line)) return `<div class="upd-li">• ${safe.replace(/^[-*]\s+/, '')}</div>`;
+    return `<div class="upd-p">${safe}</div>`;
+  }).join('');
+}
+
+function renderUpdateBadges() {
+  const has = !!updState.info?.hasUpdate;
+  const ver = updState.info?.latestVersion || '';
+  const ready = updState.phase === 'ready';
+
+  const joinBtn = $('#join-upd');
+  joinBtn.hidden = !has;
+  if (has) joinBtn.textContent = ready ? `↻ 重启升级 v${ver}` : `↑ 发现新版本 v${ver}`;
+
+  const chip = $('#upd-chip');
+  chip.hidden = !has || state.boss;
+  chip.classList.toggle('ready', ready);
+  if (has) chip.textContent = ready ? `↻ Restart v${ver}` : `↑ v${ver}`;
+
+  const checkBtn = $('#check-upd-btn');
+  checkBtn.disabled = updState.checking;
+  checkBtn.textContent = updState.checking ? '…' : has ? `v${ver} ↑` : 'Check';
+  checkBtn.classList.toggle('upd-has', has);
+}
+
+function renderUpdModal() {
+  const info = updState.info;
+  if (!info) return;
+  const sizeStr = info.assetSize ? ` · ${fmtSize(info.assetSize)}` : '';
+  const modeHint = info.canAutoUpdate ? '' : ' · 当前运行模式需手动下载安装';
+  $('#upd-ver').textContent = `v${APP_VERSION} → v${info.latestVersion}${sizeStr}${modeHint}`;
+  $('#upd-notes').innerHTML = formatNotes(info.notes);
+
+  const busy = updBusy();
+  const ready = updState.phase === 'ready';
+  $('#upd-prog').hidden = updState.phase === 'idle';
+  if (updState.phase === 'downloading') {
+    const dl = updState.total ? ` · ${fmtSize(updState.downloaded)} / ${fmtSize(updState.total)}` : '';
+    $('#upd-phase').textContent = `正在下载安装包${dl}`;
+    $('#upd-pct').textContent = `${updState.pct}%`;
+    $('#upd-bar-fill').style.width = `${updState.pct}%`;
+  } else if (updState.phase === 'verifying') {
+    $('#upd-phase').textContent = '正在校验 SHA-256 完整性…';
+    $('#upd-pct').textContent = '100%';
+    $('#upd-bar-fill').style.width = '100%';
+  } else if (updState.phase === 'installing') {
+    $('#upd-phase').textContent = '正在替换安装新版本…';
+    $('#upd-pct').textContent = '100%';
+    $('#upd-bar-fill').style.width = '100%';
+  } else if (ready) {
+    $('#upd-phase').textContent = '新版本已就绪，正在重启应用…';
+    $('#upd-pct').textContent = '✓';
+    $('#upd-bar-fill').style.width = '100%';
+  }
+
+  const errEl = $('#upd-err');
+  errEl.hidden = !updState.err;
+  errEl.textContent = updState.err;
+
+  $('#upd-cancel').textContent = busy ? '取消下载' : '稍后';
+  const act = $('#upd-act');
+  act.disabled = busy;
+  act.textContent = ready
+    ? '立即重启'
+    : busy
+      ? '更新中…'
+      : info.canAutoUpdate
+        ? '更新并重启'
+        : '前往下载';
+}
+
+function openUpdModal() {
+  if (!updState.info?.hasUpdate) return;
+  closePops();
+  renderUpdModal();
+  $('#upd-modal').hidden = false;
+}
+function closeUpdModal() {
+  $('#upd-modal').hidden = true;
+}
+
+async function checkForUpdate({ manual = false } = {}) {
+  if (updState.checking || updBusy()) return;
+  updState.checking = true;
+  renderUpdateBadges();
+  try {
+    const info = await native.checkUpdate(APP_VERSION);
+    updState.info = info;
+    updState.err = '';
+    renderUpdateBadges();
+    if (manual) {
+      if (info.hasUpdate) openUpdModal();
+      else toast(`当前已是最新版本 v${APP_VERSION}`);
+    }
+  } catch (err) {
+    if (manual) {
+      const msg = typeof err === 'string' ? err : err?.message || '检查更新失败';
+      if (state.entered) toast(msg);
+      else showJoinError(msg);
+    }
+  } finally {
+    updState.checking = false;
+    renderUpdateBadges();
+  }
+}
+
+async function doRestartForUpdate() {
+  try {
+    burnAll();
+    native.mediaClear();
+    state.session = null;
+    state.ws?.close();
+    await native.restartToUpdate();
+  } catch (err) {
+    updState.err = typeof err === 'string' ? err : err?.message || '自动重启失败，请手动重新打开应用';
+    renderUpdModal();
+  }
+}
+
+async function startAutoUpdate() {
+  const info = updState.info;
+  if (!info?.hasUpdate || updBusy()) return;
+  if (updState.phase === 'ready') { await doRestartForUpdate(); return; }
+  if (!info.canAutoUpdate) {
+    native.openReleaseUrl(info.releaseUrl);
+    closeUpdModal();
+    return;
+  }
+  updState.err = '';
+  updState.phase = 'downloading';
+  updState.pct = 0;
+  updState.downloaded = 0;
+  updState.total = info.assetSize || 0;
+  renderUpdModal();
+  renderUpdateBadges();
+  try {
+    await native.installUpdate((ev) => {
+      updState.phase = ev.phase;
+      updState.downloaded = ev.downloaded || 0;
+      updState.total = ev.total || info.assetSize || 0;
+      updState.pct = ev.percent ?? 0;
+      renderUpdModal();
+      renderUpdateBadges();
+    });
+    updState.phase = 'ready';
+    renderUpdModal();
+    renderUpdateBadges();
+    await sleep(350);
+    await doRestartForUpdate();
+  } catch (err) {
+    const msg = typeof err === 'string' ? err : err?.message || '更新失败';
+    updState.phase = 'idle';
+    if (!msg.includes('取消')) updState.err = msg;
+    renderUpdModal();
+    renderUpdateBadges();
+  }
+}
+
+$('#join-upd').onclick = openUpdModal;
+$('#upd-chip').onclick = openUpdModal;
+$('#check-upd-btn').onclick = () => checkForUpdate({ manual: true });
+$('#upd-close').onclick = closeUpdModal;
+$('#upd-gh').onclick = () => native.openReleaseUrl(updState.info?.releaseUrl || '');
+$('#upd-cancel').onclick = () => {
+  if (updBusy()) native.cancelUpdate();
+  else closeUpdModal();
+};
+$('#upd-act').onclick = startAutoUpdate;
+$('#upd-modal').addEventListener('mousedown', (e) => {
+  if (e.target === $('#upd-modal') && !updBusy()) closeUpdModal();
+});
+
+// 启动后静默检测一次新版本，之后每 4 小时定期检测（断网/内网环境静默忽略，不弹报错）
+setTimeout(() => checkForUpdate(), 2500);
+setInterval(() => checkForUpdate(), 4 * 3600 * 1000);
 
 /* ---------------- 开发自测：VITE_AUTOJOIN="server|name|key" npm run app ---------------- */
 if (import.meta.env.DEV && import.meta.env.VITE_AUTOJOIN) {

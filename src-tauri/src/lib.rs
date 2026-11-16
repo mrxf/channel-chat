@@ -1,6 +1,7 @@
 mod discovery;
 mod prefs;
 mod secret;
+mod updater;
 mod vault;
 
 use tauri::{
@@ -49,6 +50,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .manage(vault::Vault::default())
+        .manage(updater::UpdaterState::default())
         .register_uri_scheme_protocol(vault::SCHEME, vault::protocol)
         .invoke_handler(tauri::generate_handler![
             set_unread,
@@ -59,6 +61,11 @@ pub fn run() {
             secret::secret_set,
             secret::secret_delete,
             secret::device_id,
+            updater::update_check,
+            updater::update_install,
+            updater::update_cancel,
+            updater::update_restart,
+            updater::update_open_url,
             vault::media_put,
             vault::media_drop,
             vault::media_clear,

@@ -6,3 +6,4 @@ export const SERVER_LIST_URL = '';
 export const DEFAULT_PORT = 10686; // 约定端口：服务器默认 10686，被占用时递增到 10700
 export const DISCOVERY_PORT = 10686; // 「Scan」兜底扫描只探测这一个端口
 export const MAX_ACTION_LEN = 200;
+export const GITHUB_REPO = 'mrxf/channel-chat'; // 用于检查 GitHub Releases 新版本

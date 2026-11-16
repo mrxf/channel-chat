@@ -62,7 +62,7 @@ npm run app:build    # 版本号 +1（1.1.0 → 1.1.1）后打包成 .app 和 .d
 | `npm run app:build:same` | 不改版本号，重新打包 |
 | `npm run version:bump 2.0.0` | 只改版本号，不打包 |
 
-当前版本可以在三个地方看到：登录页右下角、设置里的 Version（含打包时间）、Finder 里的「显示简介」。双方版本不一致时，对话里会提示一次。
+当前版本可以在三个地方看到：登录页右下角、设置里的 Version（含打包时间）、Finder 里的「显示简介」。客户端启动后会自动静默检查 GitHub Releases 是否有新版本（也可在设置 Version 行点 **Check** 或输入 `/update` 手动检查）；发现新版本时，点 **更新并重启** 即可自动下载安装包、校验 `SHA256SUMS.txt`、替换应用（macOS 自动清除隔离属性免拦截；Windows 支持安装版静默升级与免安装版原地替换）并自动重启生效。双方版本不一致时，对话里也会提示并自动触发检查。
 
 打包产物在 `src-tauri/target/release/bundle/` 下：
 

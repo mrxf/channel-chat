@@ -27,6 +27,14 @@ impl Drop for Entry {
 #[derive(Default)]
 pub struct Vault(Mutex<HashMap<String, Entry>>);
 
+impl Vault {
+    pub fn clear(&self) {
+        if let Ok(mut guard) = self.0.lock() {
+            guard.clear();
+        }
+    }
+}
+
 #[tauri::command]
 pub fn media_put(request: tauri::ipc::Request<'_>, vault: State<'_, Vault>) -> Result<String, String> {
     let InvokeBody::Raw(data) = request.body() else {

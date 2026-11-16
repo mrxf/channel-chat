@@ -46,6 +46,7 @@
 
         <button id="join-btn" class="primary" type="submit">Continue</button>
         <p class="form-error" id="join-error" hidden></p>
+        <button type="button" class="join-upd" id="join-upd" hidden></button>
         <span class="join-ver" id="join-ver"></span>
         <p class="hint">Key is stretched locally (scrypt) and never leaves this device.<br />Messages are end-to-end encrypted (XChaCha20-Poly1305).</p>
       </form>
@@ -85,6 +86,7 @@
           <div class="title" id="title" data-tauri-drag-region>Session</div>
           <div class="conv-tag" id="conv-tag" hidden></div>
           <div class="spacer" data-tauri-drag-region></div>
+          <button class="chip upd-chip" id="upd-chip" hidden title="发现新版本，点击查看并更新"></button>
           <button class="chip ghost" id="wipe-btn" title="清屏：隐藏当前屏幕所有消息（仅本地）">Clear</button>
           <button class="chip ghost" id="share-btn" title="复制服务器地址（不含口令）">Share</button>
           <button class="icon ghost" id="settings-btn" title="Settings">⋯</button>
@@ -196,7 +198,10 @@
           </div>
           <div class="row">
             <span>Version<small id="build-time"></small></span>
-            <code id="app-ver">-</code>
+            <div class="ver-actions">
+              <code id="app-ver">-</code>
+              <button type="button" class="chip" id="check-upd-btn" title="检查 GitHub Releases 新版本">Check</button>
+            </div>
           </div>
           <div class="pop-actions">
             <button type="button" id="clear-btn" title="清空当前会话（双方一起）">Clear context</button>
@@ -208,6 +213,34 @@
         <div class="toast" id="toast" hidden></div>
       </main>
     </section>
+
+    <!-- 版本更新弹窗（登录页与主界面共用） -->
+    <div class="upd-mask" id="upd-modal" hidden>
+      <div class="upd-card">
+        <div class="upd-head">
+          <div>
+            <div class="upd-title">Update available</div>
+            <div class="upd-sub" id="upd-ver">-</div>
+          </div>
+          <button type="button" class="icon ghost" id="upd-close" title="关闭">✕</button>
+        </div>
+        <div class="upd-notes" id="upd-notes"></div>
+        <div class="upd-prog" id="upd-prog" hidden>
+          <div class="upd-prog-row">
+            <span id="upd-phase">Downloading…</span>
+            <span id="upd-pct">0%</span>
+          </div>
+          <div class="upd-bar"><i id="upd-bar-fill"></i></div>
+        </div>
+        <p class="upd-err" id="upd-err" hidden></p>
+        <div class="upd-foot">
+          <button type="button" class="ghost-btn" id="upd-gh" title="在浏览器打开 GitHub Release 页面">GitHub</button>
+          <span class="spacer"></span>
+          <button type="button" class="ghost-btn" id="upd-cancel">稍后</button>
+          <button type="button" class="send-btn" id="upd-act">更新并重启</button>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

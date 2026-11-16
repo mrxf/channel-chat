@@ -3,6 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { sealLocal, openLocal } from './crypto.js';
 
 const inTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
+const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
+// 自定义协议在 WebView2（Windows）上要写成 http://<scheme>.localhost/，macOS 上是 <scheme>://localhost/
+const vaultUrl = (token) => (isWindows ? `http://vault.localhost/${token}` : `vault://localhost/${token}`);
 let notifyMod = null;
 const loadNotify = async () => (notifyMod ??= await import('@tauri-apps/plugin-notification'));
 
@@ -10,6 +13,8 @@ const PREFS_KEY = 'agent.prefs.v1';
 
 export const native = {
   inTauri,
+  isWindows,
+  isMac: !isWindows && typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent),
 
   /** 偏好读写：Tauri 中存到应用配置目录（WebView 是无痕模式），浏览器中用 localStorage */
   async loadPrefs() {
@@ -29,7 +34,7 @@ export const native = {
   async mediaOpen(bytes, mime) {
     if (inTauri) {
       const token = await invoke('media_put', bytes, { headers: { 'x-mime': mime } });
-      return { url: `vault://localhost/${token}`, close: () => invoke('media_drop', { token }).catch(() => {}) };
+      return { url: vaultUrl(token), close: () => invoke('media_drop', { token }).catch(() => {}) };
     }
     const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
     return { url, close: () => URL.revokeObjectURL(url) };
@@ -47,14 +52,14 @@ export const native = {
     } catch { /* ignore */ }
   },
 
-  /** Dock 角标 + 菜单栏数字 */
+  /** Dock 角标 + 菜单栏数字（Windows：托盘图标悬停提示） */
   setUnread(count) {
     if (inTauri) invoke('set_unread', { count }).catch(() => {});
   },
 
   /** Dock 图标跳动（窗口不在前台时） */
   /**
-   * 会话口令：用本机硬件 UUID 派生的密钥加密后，存在应用配置目录里（浏览器版不保存）。
+   * 会话口令：用本机硬件 ID 派生的密钥加密后，存在应用配置目录里（浏览器版不保存）。
    * 不用系统钥匙串，所以不会弹授权窗口；文件拷到别的电脑上解不开。
    */
   canRemember: inTauri,

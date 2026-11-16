@@ -351,6 +351,10 @@ async function fillSavedKey() {
 
 if (native.canRemember) {
   $('#remember-row').hidden = false;
+  if (!native.isMac) {
+    $('#remember-row span').textContent = 'Remember on this PC';
+    $('#remember-row small').textContent = '口令加密保存在本机，只能在这台电脑上解开';
+  }
   $('#remember-key').checked = prefs.rememberKey;
   $('#remember-key').onchange = (e) => {
     prefs.rememberKey = e.target.checked;
@@ -978,6 +982,7 @@ function setTheme(t) {
 document.querySelectorAll('#theme-seg button').forEach((b) => (b.onclick = () => { setTheme(b.dataset.theme); prefs.theme = b.dataset.theme; savePrefs(); }));
 setTheme(prefs.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'warm'));
 if (native.inTauri) document.body.classList.add('tauri');
+if (native.isMac) document.body.classList.add('mac'); // 只有 macOS 窗口有红绿灯，需要留位置
 
 /* ---------------- 弹层 ---------------- */
 const pops = { settings: $('#settings'), actions: $('#actions-pop') };

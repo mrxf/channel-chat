@@ -3,7 +3,7 @@
   "version": "1.1.6",
   "private": true,
   "type": "module",
-  "description": "局域网端到端加密阅后即焚聊天（Tauri macOS 客户端 + 密文中继服务器）",
+  "description": "局域网端到端加密阅后即焚聊天（Tauri macOS / Windows 客户端 + 密文中继服务器）",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,6 +12,7 @@
     "app:build:minor": "node scripts/bump.mjs minor && tauri build",
     "app:build:same": "tauri build",
     "version:bump": "node scripts/bump.mjs",
+    "release": "node scripts/release.mjs",
     "server": "node server/index.js",
     "tauri": "tauri",
     "postinstall": "npm --prefix server install --no-audit --no-fund"

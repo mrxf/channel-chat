@@ -1,0 +1,207 @@
+# 打包流水线：服务端 Docker 镜像 + macOS 客户端 + Windows 客户端，推送 v* tag 时自动创建 Release。
+#
+# 触发方式：
+#   - 推送 tag v1.2.3（`npm run release` 会自动做）：三端打包 → 推送镜像到 GHCR → 创建 GitHub Release
+#   - 推送到 ci/** 分支，或在 Actions 页面手动运行：只打包，安装包在本次运行的 Artifacts 里下载，不发布
+name: Build & Release
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['ci/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write # 创建 Release
+  packages: write # 推送镜像到 ghcr.io
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}-server
+
+jobs:
+  meta:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: v
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            if [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
+              echo "::error::tag $GITHUB_REF_NAME 和 package.json 里的版本 $VERSION 不一致"
+              exit 1
+            fi
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "版本 $VERSION（ref: $GITHUB_REF）"
+
+  desktop:
+    name: ${{ matrix.name }}
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin # 一个安装包同时支持 Apple 芯片和 Intel
+          - name: Windows
+            os: windows-latest
+            rust_targets: ''
+            args: ''
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.name }}
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p out
+          if [[ "${{ matrix.name }}" == macOS ]]; then
+            cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg "out/Agent_${VERSION}_macOS_universal.dmg"
+          else
+            cp src-tauri/target/release/bundle/nsis/*-setup.exe "out/Agent_${VERSION}_Windows_x64-setup.exe"
+            # 免安装版：单个 exe，需要系统自带 WebView2（Windows 10/11 一般都有）
+            cp src-tauri/target/release/agent.exe "out/Agent_${VERSION}_Windows_x64_portable.exe"
+          fi
+          ls -lh out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+
+  docker:
+    name: Docker
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: needs.meta.outputs.release == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: docker-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ needs.meta.outputs.release == 'true' }}
+            type=ref,event=branch
+          labels: |
+            org.opencontainers.image.title=channel-chat relay server
+            org.opencontainers.image.description=LAN E2E-encrypted relay: forwards ciphertext only, stores nothing
+
+      # 只有发布时才推送；平时只验证能不能构建
+      - uses: docker/build-push-action@v6
+        with:
+          context: server
+          platforms: linux/amd64,linux/arm64
+          push: ${{ needs.meta.outputs.release == 'true' }}
+          tags: ${{ steps.docker-meta.outputs.tags }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: Release
+    needs: [meta, desktop, docker]
+    if: needs.meta.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          pattern: client-*
+          merge-multiple: true
+
+      - name: Server package
+        run: |
+          # 不用 Docker 的话：解压后 npm i && npm start
+          tar -czf "out/channel-chat-server_${VERSION}.tar.gz" --exclude=node_modules --exclude=Dockerfile --exclude=.dockerignore \
+            --transform "s,^server,channel-chat-server_${VERSION}," server
+          cd out && sha256sum * > SHA256SUMS.txt && ls -lh
+
+      - name: Release notes
+        run: |
+          cat > notes.md <<EOF
+          ## 下载
+
+          | 平台 | 文件 |
+          |---|---|
+          | macOS（Apple 芯片 + Intel） | \`Agent_${VERSION}_macOS_universal.dmg\` |
+          | Windows 10/11 安装版 | \`Agent_${VERSION}_Windows_x64-setup.exe\` |
+          | Windows 免安装版 | \`Agent_${VERSION}_Windows_x64_portable.exe\` |
+          | 服务端（Node 18+） | \`channel-chat-server_${VERSION}.tar.gz\`，解压后 \`npm i && npm start\` |
+
+          安装包没有签名：
+          - **macOS**：第一次打开如果提示无法验证开发者，到「系统设置 → 隐私与安全性」点「仍要打开」，或者执行 \`xattr -cr /Applications/Agent.app\`。
+          - **Windows**：SmartScreen 拦截时点「更多信息 → 仍要运行」。
+
+          ## 服务端 Docker
+
+          \`\`\`bash
+          # Linux：用主机网络，局域网自动发现可用
+          docker run -d --name channel-chat --restart unless-stopped --network host ${IMAGE}:${VERSION}
+
+          # macOS / Windows 的 Docker Desktop：映射端口，关闭自动发现（客户端手动填地址）
+          docker run -d --name channel-chat --restart unless-stopped -p 10686:10686 -e NO_DISCOVERY=1 ${IMAGE}:${VERSION}
+          \`\`\`
+
+          文件校验见 \`SHA256SUMS.txt\`。
+          EOF
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ env.VERSION }}
+          body_path: notes.md
+          generate_release_notes: true
+          files: out/*

@@ -19,7 +19,7 @@ fn show_main(app: &AppHandle) {
     }
 }
 
-/// 未读数：同时更新 Dock 角标和菜单栏（状态栏）数字。0 表示清除。
+/// 未读数：macOS 更新 Dock 角标和菜单栏数字；Windows 没有角标，写到托盘图标的悬停提示里。0 表示清除。
 #[tauri::command]
 fn set_unread(app: AppHandle, count: u32) {
     if let Some(w) = app.get_webview_window("main") {
@@ -27,7 +27,10 @@ fn set_unread(app: AppHandle, count: u32) {
     }
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let title = if count > 0 { Some(count.to_string()) } else { None };
+        #[cfg(target_os = "macos")]
         let _ = tray.set_title(title);
+        #[cfg(not(target_os = "macos"))]
+        let _ = tray.set_tooltip(Some(title.map_or("Agent".into(), |n| format!("Agent ({n})"))));
     }
 }
 
@@ -66,8 +69,13 @@ pub fn run() {
             let show = MenuItem::with_id(app, "show", "Open Agent", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, Some("CmdOrCtrl+Q"))?;
             let menu = Menu::with_items(app, &[&show, &PredefinedMenuItem::separator(app)?, &quit])?;
+            // macOS 菜单栏用单色模板图标（自动适配深浅色）；Windows 任务栏用彩色应用图标
+            #[cfg(target_os = "macos")]
+            let icon = tauri::include_image!("icons/tray.png");
+            #[cfg(not(target_os = "macos"))]
+            let icon = app.default_window_icon().cloned().unwrap_or_else(|| tauri::include_image!("icons/tray.png"));
             TrayIconBuilder::with_id(TRAY_ID)
-                .icon(tauri::include_image!("icons/tray.png"))
+                .icon(icon)
                 .icon_as_template(true)
                 .tooltip("Agent")
                 .menu(&menu)
@@ -85,7 +93,7 @@ pub fn run() {
                 .build(app)?;
             Ok(())
         })
-        // 点关闭按钮只隐藏窗口（macOS 原生习惯），连接保持，消息仍可通知
+        // 点关闭按钮只隐藏窗口（macOS 原生习惯；Windows 上留在托盘），连接保持，消息仍可通知
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

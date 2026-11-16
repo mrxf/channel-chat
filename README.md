@@ -1,13 +1,16 @@
 # private-chat
 
-局域网阅后即焚聊天：macOS 原生客户端（Tauri），界面伪装成 AI Agent 工作台，消息端到端加密。服务器只转发密文，不存储任何内容。
+局域网阅后即焚聊天：macOS / Windows 原生客户端（Tauri），界面伪装成 AI Agent 工作台，消息端到端加密。服务器只转发密文，不存储任何内容。
 
 ```
 private-chat/
-├── server/        密文中继服务器（独立目录，可以单独拷到任何机器上运行）
+├── server/        密文中继服务器（独立目录，可以单独拷到任何机器上运行，也有 Docker 镜像）
 ├── src/           客户端前端
-└── src-tauri/     macOS 原生外壳（菜单栏、Dock 角标、通知）
+├── src-tauri/     原生外壳（菜单栏 / 托盘、Dock 角标、通知）
+└── .github/       打包流水线（Docker + macOS + Windows → GitHub Release）
 ```
+
+不想自己编译的话，直接到 [Releases](https://github.com/mrxf/channel-chat/releases) 下载安装包。
 
 ## 1. 启动服务器
 
@@ -18,6 +21,18 @@ node server/index.js --no-discovery  # 不在局域网广播（只能手动填�
 ```
 
 只需要 Node 18 以上。私聊发图片 / 视频需要 1.1.4 以后的服务器（文字私聊不受影响），更新 server 目录后重启即可。拷到别的机器单独运行：`cd server && npm i && npm start`。
+
+**Docker**（镜像由流水线发布到 GitHub Container Registry，支持 amd64 / arm64）：
+
+```bash
+# Linux 服务器：用主机网络，局域网自动发现可用
+docker run -d --name channel-chat --restart unless-stopped --network host ghcr.io/mrxf/channel-chat-server:latest
+
+# Docker Desktop（macOS / Windows）：主机网络不可用，映射端口并关闭自动发现，客户端手动填地址
+docker run -d --name channel-chat --restart unless-stopped -p 10686:10686 -e NO_DISCOVERY=1 ghcr.io/mrxf/channel-chat-server:latest
+```
+
+可用的环境变量：`PORT`（默认 10686）、`RELAY_NAME`（广播的名称，默认主机名）、`NO_DISCOVERY=1`。要自定义预制动作，把自己的文件挂进去：`-v $PWD/actions.json:/app/actions.json:ro`。
 
 启动后终端会打印可以填写的地址，比如 `192.168.1.5:10686`。服务器日志只记录连接数和房间数，不记录任何内容。
 
@@ -54,17 +69,39 @@ npm run app:build    # 版本号 +1（1.1.0 → 1.1.1）后打包成 .app 和 .d
 - `macos/Agent.app`
 - `dmg/Agent_<版本号>_aarch64.dmg`
 
-应用没有签名，第一次打开要右键选「打开」。也可以执行：
+在 Windows 上执行同样的命令，产物是 `bundle/nsis/Agent_<版本号>_x64-setup.exe`（需要 Rust 和 Node，打包工具会自动下载 NSIS）。
+
+应用没有签名：
+
+- macOS：第一次打开如果提示无法验证开发者，到「系统设置 → 隐私与安全性」点「仍要打开」，或者执行 `xattr -cr /Applications/Agent.app`。
+- Windows：SmartScreen 拦截时点「更多信息 → 仍要运行」。
+
+Windows 版和 macOS 版功能一致，有几处系统差异：未读数显示在托盘图标的悬停提示里（Windows 没有 Dock 角标和菜单栏数字），关闭窗口后程序留在右下角托盘里。
+
+### 发布新版本
 
 ```bash
-xattr -cr /Applications/Agent.app
+npm run release            # 补丁号 +1 → 提交 → 打 tag → 推送
+npm run release minor      # 次版本号 +1
+npm run release current    # 不改版本号，直接给当前版本打 tag
 ```
+
+推送 `v*` tag 后，GitHub Actions 会并行完成：
+
+| 任务 | 产物 |
+|---|---|
+| macOS | `Agent_<版本>_macOS_universal.dmg`（Apple 芯片和 Intel 通用） |
+| Windows | `Agent_<版本>_Windows_x64-setup.exe` 安装版、`Agent_<版本>_Windows_x64_portable.exe` 免安装版 |
+| Docker | `ghcr.io/mrxf/channel-chat-server:<版本>` 和 `:latest`（amd64 + arm64） |
+| 服务端压缩包 | `channel-chat-server_<版本>.tar.gz`，给不用 Docker 的机器 |
+
+全部成功后自动创建 Release，附带下载说明和 `SHA256SUMS.txt`，大约 15 分钟。只想试试能不能打包、不发布：推送到任意 `ci/` 开头的分支（比如 `git push origin HEAD:ci/test`），或者在 Actions 页面点 **Run workflow**，安装包在那次运行的 Artifacts 里。
 
 登录页三项：
 
 - **Server**：服务器地址，输入时会实时检测是否在线。
 - **Display name**：显示名称。
-- **Session key**：会话口令。点 **Generate** 会生成一个随机口令并复制，发给对方即可。勾选 **Remember on this Mac** 后会加密保存在本机，下次不用再输。
+- **Session key**：会话口令。点 **Generate** 会生成一个随机口令并复制，发给对方即可。勾选 **Remember on this Mac**（Windows 上是 Remember on this PC）后会加密保存在本机，下次不用再输。
 
 ## 功能
 
@@ -117,8 +154,8 @@ xattr -cr /Applications/Agent.app
 - 服务器只能看到房间 ID（哈希值）、密文和连接数。拍一拍、已读回执、设置同步也全部是加密的。
 - 私聊和群聊用同一个房间口令加密，持有口令就能解开（方便审核）。私聊的隔离靠服务器定向转发：私聊消息和附件分块只发给对方的连接，其他成员收不到密文。服务器能看到「某个连接给另一个连接发了多少字节」，看不到内容。
 - 每个成员进入会话时随机生成一个只在内存里的 ID，并和服务器分配的连接绑定，其他客户端无法冒用你的身份发消息。持有口令的人之间是互相信任的。
-- 本地只保存名称、服务器地址、主题、自定义动作和侧栏任务名，不保存任何消息。私聊条目的自定义名称以「口令指纹 + 对方名字」的哈希为键保存，不知道口令的人看不出是和谁的私聊。偏好存在 `~/Library/Application Support/com.agentworkspace.desktop/prefs.json`（开发版用 `prefs.dev.json`，互不覆盖）。
-- 口令：登录页勾选「Remember on this Mac」（默认勾选）时，口令用本机硬件 UUID 派生的密钥加密（XChaCha20-Poly1305），保存在配置目录的 `session.dat`（开发版 `session.dev.dat`，权限 600），下次打开自动填好，直接回车即可进入。取消勾选会立即删除。不使用系统钥匙串，不会弹授权窗口。文件拷到别的电脑上解不开，但能登录这台 Mac 账户的人可以解开，所以电脑本身请设好登录密码（最好开启 FileVault）。
+- 本地只保存名称、服务器地址、主题、自定义动作和侧栏任务名，不保存任何消息。私聊条目的自定义名称以「口令指纹 + 对方名字」的哈希为键保存，不知道口令的人看不出是和谁的私聊。偏好存在 `~/Library/Application Support/com.agentworkspace.desktop/prefs.json`（Windows：`%APPDATA%\com.agentworkspace.desktop\prefs.json`；开发版用 `prefs.dev.json`，互不覆盖）。
+- 口令：登录页勾选「Remember on this Mac」（默认勾选）时，口令用本机硬件 ID（macOS 是硬件 UUID，Windows 是 MachineGuid）派生的密钥加密（XChaCha20-Poly1305），保存在配置目录的 `session.dat`（开发版 `session.dev.dat`，权限 600），下次打开自动填好，直接回车即可进入。取消勾选会立即删除。不使用系统钥匙串，不会弹授权窗口。文件拷到别的电脑上解不开，但能登录这台 Mac 账户的人可以解开，所以电脑本身请设好登录密码（最好开启 FileVault / BitLocker）。
 - 附件处理：
   - 发送前，图片在本地重新编码（最长边 2048px），去掉 EXIF、GPS 等元数据。
   - 内容按 64KB 分块，每块单独加密（块序号也纳入加密校验）。

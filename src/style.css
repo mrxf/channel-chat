@@ -120,7 +120,7 @@ input:focus, select:focus { border-color: var(--muted); box-shadow: 0 0 0 3px co
 }
 .side-collapsed .sidebar { margin-left: -256px; }
 .side-top { display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 2px 0 8px; flex: none; }
-.tauri .side-top { padding-left: 80px; } /* 给红绿灯留位置 */
+.tauri.mac .side-top { padding-left: 80px; } /* 给红绿灯留位置 */
 .brand { display: flex; align-items: center; gap: 7px; font-size: 14.5px; }
 .icon { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; font-size: 16px; color: var(--muted); flex: none; }
 .ghost:hover, .icon:hover { background: var(--hover); color: var(--text); }

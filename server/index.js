@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Agent Relay —— 局域网密文中继服务器
 //   node index.js [--port 10686] [--host 0.0.0.0] [--name 名称] [--no-discovery] [--quiet] [--debug]
+//   也可以用环境变量：PORT、HOST、RELAY_NAME、NO_DISCOVERY=1（Docker 里常用）
 //   默认端口 10686，被占用时依次尝试到 10700（客户端约定的范围）
 //   默认通过 Bonjour（mDNS）在局域网广播自己，客户端可以自动发现；--no-discovery 关闭
 import http from 'node:http';
@@ -14,7 +15,7 @@ const flag = (name, def) => { const i = args.indexOf(`--${name}`); return i >= 0
 const PORT_MIN = 10686, PORT_MAX = 10700;
 const FIXED_PORT = flag('port', process.env.PORT); // 显式指定端口时不自动递增
 let PORT = Number(FIXED_PORT || PORT_MIN);
-const DISCOVERY = !args.includes('--no-discovery');
+const DISCOVERY = !args.includes('--no-discovery') && !/^(1|true|yes)$/i.test(process.env.NO_DISCOVERY || '');
 const MDNS_TYPE = 'agentws'; // 客户端浏览 _agentws._tcp
 const HOST = flag('host', process.env.HOST || '0.0.0.0');
 const QUIET = args.includes('--quiet');

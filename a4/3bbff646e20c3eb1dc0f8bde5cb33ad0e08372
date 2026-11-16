@@ -1,0 +1,41 @@
+.github/workflows/android.yml
+  s_d204de4f582d8f::t_8e9457b1611e24 1-206
+.github/workflows/release.yml
+  s_d204de4f582d8f::t_bb2120ca186d28 116,120-123
+README.md
+  s_d204de4f582d8f::t_235091e99cc93b 142
+mobile/.gitignore
+  s_d204de4f582d8f::t_8555f028fdfb89 46-48
+mobile/README.md
+  s_d204de4f582d8f::t_5ac0fcbaef6b34 15,33-42,44,46-48,51,54,56-61,64,77-79
+mobile/android/app/src/main/AndroidManifest.xml
+  s_d204de4f582d8f::t_2dc2e2dffdd245 9-13,44-47
+mobile/lib/core/prefs.dart
+  s_d204de4f582d8f::t_dc2aa84d073ab2 49-50,89-95
+mobile/lib/ui/chat_page.dart
+  s_d204de4f582d8f::t_f25ee68cb0c96d 57-79
+mobile/lib/ui/login_page.dart
+  s_d204de4f582d8f::t_172d06e3463962 224-225
+mobile/pubspec.yaml
+  s_d204de4f582d8f::t_dad08e9923d29a 19
+mobile/tool/setup-signing.sh
+  s_d204de4f582d8f::t_4b0d482d2925b1 1-68
+scripts/bump.mjs
+  s_d204de4f582d8f::t_0c0425fddd01b5 41,43-44,46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "a43bbff646e20c3eb1dc0f8bde5cb33ad0e08372",
+  "prompts": {},
+  "sessions": {
+    "s_d204de4f582d8f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9b5fe4a-ab54-4a98-b1f2-dbb037a869bd",
+        "model": "unknown"
+      },
+      "human_author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

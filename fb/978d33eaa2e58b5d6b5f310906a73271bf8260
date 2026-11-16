@@ -1,0 +1,83 @@
+.gitignore
+  s_ca2b52fece431a::t_dfba86e1c02198 1-7
+README.md
+  s_ca2b52fece431a::t_6bb90dc4f51b0e 1-135
+index.html
+  s_ca2b52fece431a::t_74dfa4dea836db 1-212
+package-lock.json
+  s_ca2b52fece431a::t_4d4ad329da34b1 1-1182
+package.json
+  s_ca2b52fece431a::t_5f0820694978e3 1-29
+scripts/bump.mjs
+  s_ca2b52fece431a::t_37ebfa654f16ff 1-34
+server/actions.json
+  s_ca2b52fece431a::t_41c8eac95d9e99 1-13
+server/index.js
+  s_ca2b52fece431a::t_51c33a2dd09eef 1-105
+server/package-lock.json
+  s_ca2b52fece431a::t_7ce22689f849cb 1-96
+server/package.json
+  s_ca2b52fece431a::t_df59031d0cf685 1-20
+server/relay.js
+  s_ca2b52fece431a::t_53240baa9d907c 1-130
+src-tauri/.gitignore
+  s_ca2b52fece431a::t_95d7a1dad57d7a 1-4
+src-tauri/Cargo.lock
+  s_ca2b52fece431a::t_39401d0876b4ce 1-5153
+src-tauri/Cargo.toml
+  s_ca2b52fece431a::t_41c7db413785aa 1-31
+src-tauri/Info.plist
+  s_ca2b52fece431a::t_27a62430a8fc00 1-19
+src-tauri/build.rs
+  s_ca2b52fece431a::t_e7b99a54207a85 1-3
+src-tauri/capabilities/default.json
+  s_ca2b52fece431a::t_91893154715fdf 1-12
+src-tauri/src/discovery.rs
+  s_ca2b52fece431a::t_528f4d09bffe45 1-154
+src-tauri/src/lib.rs
+  s_ca2b52fece431a::t_f6d003d01bb6d5 1-105
+src-tauri/src/main.rs
+  s_ca2b52fece431a::t_99aab211b86838 1-5
+src-tauri/src/prefs.rs
+  s_ca2b52fece431a::t_a0cf39f2735097 1-30
+src-tauri/src/secret.rs
+  s_ca2b52fece431a::t_a238f800918748 1-68
+src-tauri/src/vault.rs
+  s_ca2b52fece431a::t_b33577f7387741 1-105
+src-tauri/tauri.conf.json
+  s_ca2b52fece431a::t_19b2e7ee419772 1-39
+src/config.js
+  s_ca2b52fece431a::t_d96e14b9d9331c 1-8
+src/crypto.js
+  s_ca2b52fece431a::t_e85fc29ca94aa4 1-141
+src/main.js
+  s_ca2b52fece431a::t_afa49673f93970 1-1612
+src/media.js
+  s_ca2b52fece431a::t_097d7a72b82998 1-91
+src/native.js
+  s_ca2b52fece431a::t_f7f1e4a05ae3a8 1-121
+src/personas.js
+  s_ca2b52fece431a::t_25bea15dd868ba 1-215
+src/runner.js
+  s_ca2b52fece431a::t_445be05cbbe5b2 1-81
+src/style.css
+  s_ca2b52fece431a::t_161ed3c84a6759 1-409
+vite.config.js
+  s_ca2b52fece431a::t_312559d868df30 1-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "fb978d33eaa2e58b5d6b5f310906a73271bf8260",
+  "prompts": {},
+  "sessions": {
+    "s_ca2b52fece431a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "47a63cd0-8d69-48e0-831d-63e720fc76f8",
+        "model": "unknown"
+      },
+      "human_author": "zhangshuyuan <zhangshuyuan@kingsoft.com>"
+    }
+  }
+}

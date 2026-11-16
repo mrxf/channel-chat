@@ -1,0 +1,19 @@
+src/native.js
+  s_d204de4f582d8f::t_30649b435f6805 98-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "228c02f4d56dd5c8fe6676929fe8ddba9f6168aa",
+  "prompts": {},
+  "sessions": {
+    "s_d204de4f582d8f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9b5fe4a-ab54-4a98-b1f2-dbb037a869bd",
+        "model": "unknown"
+      },
+      "human_author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

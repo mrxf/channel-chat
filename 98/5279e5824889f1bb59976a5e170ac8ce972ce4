@@ -1,0 +1,174 @@
+.github/workflows/android.yml
+  h_595af853e379f3 1-206
+.github/workflows/release.yml
+  h_595af853e379f3 1,116-124,168,199-200,206
+README.md
+  h_595af853e379f3 3,10,140-143
+mobile/.gitignore
+  h_595af853e379f3 1-48
+mobile/.metadata
+  h_595af853e379f3 1-33
+mobile/README.md
+  h_595af853e379f3 1-81
+mobile/analysis_options.yaml
+  h_595af853e379f3 1-28
+mobile/android/.gitignore
+  h_595af853e379f3 1-14
+mobile/android/app/build.gradle.kts
+  h_595af853e379f3 1-68
+mobile/android/app/src/debug/AndroidManifest.xml
+  h_595af853e379f3 1-7
+mobile/android/app/src/main/AndroidManifest.xml
+  h_595af853e379f3 1-61
+mobile/android/app/src/main/kotlin/com/agentworkspace/agent_mobile/KeepAliveService.kt
+  h_595af853e379f3 1-158
+mobile/android/app/src/main/kotlin/com/agentworkspace/agent_mobile/MainActivity.kt
+  h_595af853e379f3 1-193
+mobile/android/app/src/main/res/drawable-v21/launch_background.xml
+  h_595af853e379f3 1-5
+mobile/android/app/src/main/res/drawable/ic_launcher_foreground.xml
+  h_595af853e379f3 1-6
+mobile/android/app/src/main/res/drawable/ic_launcher_monochrome.xml
+  h_595af853e379f3 1-6
+mobile/android/app/src/main/res/drawable/ic_splash_star.xml
+  h_595af853e379f3 1-4
+mobile/android/app/src/main/res/drawable/ic_stat_agent.xml
+  h_595af853e379f3 1-4
+mobile/android/app/src/main/res/drawable/launch_background.xml
+  h_595af853e379f3 1-5
+mobile/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+  h_595af853e379f3 1-6
+mobile/android/app/src/main/res/values-night/colors.xml
+  h_595af853e379f3 1-4
+mobile/android/app/src/main/res/values-night/styles.xml
+  h_595af853e379f3 1-18
+mobile/android/app/src/main/res/values-v31/styles.xml
+  h_595af853e379f3 1-11
+mobile/android/app/src/main/res/values/colors.xml
+  h_595af853e379f3 1-5
+mobile/android/app/src/main/res/values/styles.xml
+  h_595af853e379f3 1-18
+mobile/android/app/src/main/res/xml/data_extraction_rules.xml
+  h_595af853e379f3 1-6
+mobile/android/app/src/profile/AndroidManifest.xml
+  h_595af853e379f3 1-7
+mobile/android/build.gradle.kts
+  h_595af853e379f3 1-24
+mobile/android/gradle.properties
+  h_595af853e379f3 1-6
+mobile/android/gradle/wrapper/gradle-wrapper.properties
+  h_595af853e379f3 1-5
+mobile/android/settings.gradle.kts
+  h_595af853e379f3 1-26
+mobile/ios/.gitignore
+  h_595af853e379f3 1-34
+mobile/ios/Flutter/AppFrameworkInfo.plist
+  h_595af853e379f3 1-24
+mobile/ios/Flutter/Debug.xcconfig
+  h_595af853e379f3 1
+mobile/ios/Flutter/Release.xcconfig
+  h_595af853e379f3 1
+mobile/ios/Runner.xcodeproj/project.pbxproj
+  h_595af853e379f3 1-644
+mobile/ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+  h_595af853e379f3 1-7
+mobile/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+  h_595af853e379f3 1-8
+mobile/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+  h_595af853e379f3 1-8
+mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
+  h_595af853e379f3 1-119
+mobile/ios/Runner.xcworkspace/contents.xcworkspacedata
+  h_595af853e379f3 1-7
+mobile/ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+  h_595af853e379f3 1-8
+mobile/ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+  h_595af853e379f3 1-8
+mobile/ios/Runner/AppDelegate.swift
+  h_595af853e379f3 1-16
+mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
+  h_595af853e379f3 1-122
+mobile/ios/Runner/Assets.xcassets/LaunchImage.imageset/Contents.json
+  h_595af853e379f3 1-23
+mobile/ios/Runner/Assets.xcassets/LaunchImage.imageset/README.md
+  h_595af853e379f3 1-5
+mobile/ios/Runner/Base.lproj/LaunchScreen.storyboard
+  h_595af853e379f3 1-37
+mobile/ios/Runner/Base.lproj/Main.storyboard
+  h_595af853e379f3 1-26
+mobile/ios/Runner/Info.plist
+  h_595af853e379f3 1-85
+mobile/ios/Runner/Runner-Bridging-Header.h
+  h_595af853e379f3 1
+mobile/ios/Runner/SceneDelegate.swift
+  h_595af853e379f3 1-6
+mobile/ios/RunnerTests/RunnerTests.swift
+  h_595af853e379f3 1-12
+mobile/lib/chat/chat_controller.dart
+  h_595af853e379f3 1-1236
+mobile/lib/chat/models.dart
+  h_595af853e379f3 1-139
+mobile/lib/core/crypto.dart
+  h_595af853e379f3 1-191
+mobile/lib/core/media.dart
+  h_595af853e379f3 1-229
+mobile/lib/core/native.dart
+  h_595af853e379f3 1-156
+mobile/lib/core/net.dart
+  h_595af853e379f3 1-140
+mobile/lib/core/prefs.dart
+  h_595af853e379f3 1-125
+mobile/lib/core/version.dart
+  h_595af853e379f3 1-2
+mobile/lib/main.dart
+  h_595af853e379f3 1-64
+mobile/lib/ui/chat_page.dart
+  h_595af853e379f3 1-713
+mobile/lib/ui/drawer.dart
+  h_595af853e379f3 1-177
+mobile/lib/ui/login_page.dart
+  h_595af853e379f3 1-453
+mobile/lib/ui/messages.dart
+  h_595af853e379f3 1-594
+mobile/lib/ui/settings_page.dart
+  h_595af853e379f3 1-350
+mobile/lib/ui/sheets.dart
+  h_595af853e379f3 1-195
+mobile/lib/ui/theme.dart
+  h_595af853e379f3 1-198
+mobile/lib/ui/widgets.dart
+  h_595af853e379f3 1-293
+mobile/pubspec.lock
+  h_595af853e379f3 1-994
+mobile/pubspec.yaml
+  h_595af853e379f3 1-101
+mobile/test/crypto_test.dart
+  h_595af853e379f3 1-60
+mobile/test/interop_test.dart
+  h_595af853e379f3 1-134
+mobile/test/vectors.json
+  h_595af853e379f3 1-26
+mobile/tool/check_dart_vectors.mjs
+  h_595af853e379f3 1-4
+mobile/tool/gen_vectors.mjs
+  h_595af853e379f3 1-13
+mobile/tool/peer.mjs
+  h_595af853e379f3 1-68
+mobile/tool/setup-signing.sh
+  h_595af853e379f3 1-68
+scripts/bump.mjs
+  h_595af853e379f3 2,7,14-15,41-50
+scripts/release.mjs
+  h_595af853e379f3 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "985279e5824889f1bb59976a5e170ac8ce972ce4",
+  "prompts": {},
+  "humans": {
+    "h_595af853e379f3": {
+      "author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

@@ -259,12 +259,66 @@ if (SERVER_LIST_URL) {
 // 探测服务器是否在线：输入时防抖调用；返回 true / false
 let probeTimer, probeSeq = 0;
 let lanFound = []; // 局域网自动发现的结果 [{ name, host, port }]
+let relayInfo = { running: false, name: '', port: 0, localAddr: '', shareAddr: '', addrs: [], clients: 0, rooms: 0 };
+let relayBusy = false;
 const setServerHint = (text, cls = '') => { const h = $('#server-hint'); h.textContent = text || '\u00a0'; h.className = `field-hint ${cls}`; };
+
+function isLocalRelayHost(hostPort) {
+  if (!relayInfo.running || !hostPort) return false;
+  return hostPort === relayInfo.localAddr || hostPort === `localhost:${relayInfo.port}` || relayInfo.addrs.includes(hostPort);
+}
+
+function isLoopbackVal(val) {
+  try {
+    const h = new URL(toWsUrl(val)).hostname;
+    return h === '127.0.0.1' || h === 'localhost';
+  } catch { return false; }
+}
+
+function renderRelayUI() {
+  const hostBtn = $('#srv-host');
+  if (hostBtn) {
+    hostBtn.disabled = relayBusy;
+    hostBtn.textContent = relayBusy ? '…' : relayInfo.running ? 'Hosting' : 'Host';
+    hostBtn.classList.toggle('hosting', relayInfo.running);
+    hostBtn.title = relayInfo.running
+      ? `本机服务运行中（${relayInfo.shareAddr}），点击停止`
+      : '在本机启动局域网服务器，其他人打开客户端即可自动发现';
+  }
+  const row = $('#relay-row');
+  if (row && native.canHost) {
+    row.hidden = false;
+    const toggle = $('#relay-toggle');
+    toggle.checked = relayInfo.running;
+    toggle.disabled = relayBusy;
+    $('#relay-sub').textContent = relayInfo.running
+      ? `${relayInfo.shareAddr} · ${relayInfo.clients} 连接（关窗不断连）`
+      : '本机充当局域网服务器，其他人可自动发现';
+  }
+  if (state.entered && state.wsUrl) {
+    const curHost = shortServer(state.wsUrl);
+    if (isLocalRelayHost(curHost)) {
+      $('#server-info').textContent = `${relayInfo.shareAddr} (Local)`;
+      $('#server-info').title = `本机内置服务 · 局域网地址 ${relayInfo.shareAddr}`;
+    } else {
+      $('#server-info').textContent = state.serverName ? `${state.serverName} · ${curHost}` : curHost;
+      $('#server-info').title = '';
+    }
+  }
+}
+
+async function refreshRelayStatus(recheckJoin = false) {
+  if (!native.canHost) return relayInfo;
+  relayInfo = await native.relayStatus();
+  renderRelayUI();
+  if (recheckJoin && !state.entered && $('#server').value.trim()) checkServer($('#server').value.trim());
+  return relayInfo;
+}
 
 async function checkServer(val) {
   const seq = ++probeSeq;
-  let url;
-  try { url = httpUrl(toWsUrl(val), '/health'); } catch (e) { setServerHint(e.message, 'bad'); return false; }
+  let wsUrl, url;
+  try { wsUrl = toWsUrl(val); url = httpUrl(wsUrl, '/health'); } catch (e) { setServerHint(e.message, 'bad'); return false; }
   setServerHint('Checking…');
   try {
     const ctl = new AbortController();
@@ -272,12 +326,25 @@ async function checkServer(val) {
     const d = await (await fetch(url, { signal: ctl.signal, cache: 'no-store' })).json();
     if (d?.app !== 'agent-relay') throw new Error();
     if (seq === probeSeq) {
-      const more = lanFound.length > 1 ? ` · 局域网共 ${lanFound.length} 个，点输入框可切换` : '';
-      setServerHint(`● Online · ${String(d.name || 'relay').slice(0, 40)}${more}`, 'good');
+      if (isLocalRelayHost(shortServer(wsUrl))) {
+        const lan = relayInfo.shareAddr !== relayInfo.localAddr
+          ? `其他人可自动发现，或填 ${relayInfo.shareAddr}`
+          : '本机回环模式（未检测到局域网连接）';
+        setServerHint(`● Hosting · ${lan}`, 'good');
+      } else {
+        const more = lanFound.length > 1 ? ` · 局域网共 ${lanFound.length} 个，点输入框可切换` : '';
+        setServerHint(`● Online · ${String(d.name || 'relay').slice(0, 40)}${more}`, 'good');
+      }
     }
     return true;
   } catch {
-    if (seq === probeSeq) setServerHint('○ Unreachable', 'bad');
+    if (seq === probeSeq) {
+      if (native.canHost && !relayInfo.running && isLoopbackVal(val)) {
+        setServerHint('○ 本机服务未开启 · 点右侧 Host 启动，或点 Scan 查找他人', 'bad');
+      } else {
+        setServerHint('○ Unreachable', 'bad');
+      }
+    }
     return false;
   }
 }
@@ -296,8 +363,10 @@ const lanUrl = (f) => `${f.host}:${f.port}`;
 // force：当前地址为空 / 不可用 / 用户主动点了 Scan 时，直接填入发现的第一个
 function applyFound(list, force) {
   const seen = new Set();
-  lanFound = list.filter((f) => f && typeof f.host === 'string' && !seen.has(lanUrl(f)) && seen.add(lanUrl(f)));
-  renderServerList(lanFound.map((f) => ({ url: lanUrl(f), name: `${String(f.name || 'relay').slice(0, 40)} · 局域网` })));
+  const others = list.filter((f) => f && typeof f.host === 'string' && !(relayInfo.running && relayInfo.addrs.includes(lanUrl(f))));
+  lanFound = others.filter((f) => !seen.has(lanUrl(f)) && seen.add(lanUrl(f)));
+  const localOpt = relayInfo.running ? [{ url: relayInfo.localAddr, name: `${relayInfo.name || '本机'} · 本机服务 (${relayInfo.shareAddr})` }] : [];
+  renderServerList([...localOpt, ...lanFound.map((f) => ({ url: lanUrl(f), name: `${String(f.name || 'relay').slice(0, 40)} · 局域网` }))]);
   if (!lanFound.length) return false;
   const cur = $('#server').value.trim();
   if (force && !lanFound.some((f) => lanUrl(f) === cur)) $('#server').value = lanUrl(lanFound[0]);
@@ -312,24 +381,71 @@ async function scanLan() {
   try {
     setServerHint('Searching local network…');
     let list = await native.discover(2000);
-    if (!list.length) {
+    if (!list.filter((f) => !(relayInfo.running && relayInfo.addrs.includes(lanUrl(f)))).length) {
       setServerHint(`Scanning this subnet on port ${DISCOVERY_PORT}…`);
       list = await native.scanSubnet(DISCOVERY_PORT);
     }
-    if (!applyFound(list, true)) setServerHint('局域网里没有找到服务器，请手动输入地址', 'bad');
+    if (!applyFound(list, true)) {
+      if (relayInfo.running) checkServer($('#server').value.trim());
+      else setServerHint('局域网里没有找到服务器 · 可点 Host 在本机直接开启', 'bad');
+    }
   } finally {
     btn.disabled = false; btn.textContent = 'Scan';
   }
 }
 
+async function toggleHostFromJoin() {
+  if (!native.canHost || relayBusy) return;
+  relayBusy = true;
+  renderRelayUI();
+  showJoinError('');
+  try {
+    if (relayInfo.running) {
+      const wasLocal = isLocalRelayHost((() => { try { return shortServer(toWsUrl($('#server').value)); } catch { return ''; } })());
+      relayInfo = await native.relayStop();
+      renderRelayUI();
+      applyFound(lanFound, false);
+      if (wasLocal) {
+        $('#server').value = '';
+        setServerHint('已停止本机局域网服务');
+        const list = await native.discover(1000);
+        applyFound(list, true);
+      }
+    } else {
+      const name = $('#name').value.trim().slice(0, 24) || prefs.name || '';
+      relayInfo = await native.relayStart({ name });
+      renderRelayUI();
+      applyFound(lanFound, false);
+      $('#server').value = relayInfo.localAddr;
+      await checkServer(relayInfo.localAddr);
+      if (!$('#name').value.trim()) $('#name').focus();
+      else if (!$('#pass').value) $('#pass').focus();
+      else $('#join-btn').focus();
+    }
+  } catch (err) {
+    const msg = typeof err === 'string' ? err : err?.message || '启动本机服务失败';
+    setServerHint(msg, 'bad');
+  } finally {
+    relayBusy = false;
+    renderRelayUI();
+  }
+}
+
 if (native.canDiscover) {
-  $('#srv-scan').hidden = false;
+  $('#srv-btns').hidden = false;
   $('#srv-scan').onclick = scanLan;
+  $('#srv-host').onclick = toggleHostFromJoin;
   (async () => {
+    await refreshRelayStatus();
     const saved = $('#server').value.trim();
+    if (!saved && relayInfo.running) {
+      $('#server').value = relayInfo.localAddr;
+      await checkServer(relayInfo.localAddr);
+      return;
+    }
     if (!saved) setServerHint('Searching local network…');
     const [list, ok] = await Promise.all([native.discover(1500), saved ? checkServer(saved) : false]);
-    if (!applyFound(list, !ok) && !saved) setServerHint('没有自动发现服务器 · 点 Scan 再找一次，或手动输入');
+    if (!applyFound(list, !ok) && !saved) setServerHint('没有自动发现服务器 · 点 Host 在本机开启，或点 Scan 查找');
   })();
 } else if (prefs.server) {
   probe();
@@ -445,7 +561,8 @@ function enterMain() {
   $('#fp').textContent = fp.match(/.{4}/g).join(' ');
   $('#app-ver').textContent = `v${APP_VERSION}`;
   $('#build-time').textContent = `打包于 ${__BUILD_TIME__}`;
-  $('#server-info').textContent = state.serverName ? `${state.serverName} · ${shortServer(state.wsUrl)}` : shortServer(state.wsUrl);
+  renderRelayUI();
+  refreshRelayStatus();
   renderPersona();
   applyCfgUI();
   applyRunner();
@@ -474,7 +591,7 @@ function connect(first = false) {
           state.serverMedia = Array.isArray(m.features) && m.features.includes('media');
           state.serverDirect = Array.isArray(m.features) && m.features.includes('direct');
           state.serverActions = (Array.isArray(m.actions) ? m.actions : []).map(sanitizeAction).filter(Boolean).slice(0, 50);
-          if (state.entered) renderActions();
+          if (state.entered) { renderActions(); renderRelayUI(); }
           ws.send(JSON.stringify({ type: 'join', room: state.session.roomId }));
           break;
         case 'joined':
@@ -1133,22 +1250,90 @@ if (native.isMac) document.body.classList.add('mac'); // 只有 macOS 窗口有�
 
 /* ---------------- 弹层 ---------------- */
 const pops = { settings: $('#settings'), actions: $('#actions-pop') };
+let relayPollTimer = null;
+function syncRelayPoll() {
+  clearInterval(relayPollTimer);
+  relayPollTimer = null;
+  if (!pops.settings.hidden && native.canHost) {
+    refreshRelayStatus();
+    relayPollTimer = setInterval(() => {
+      if (pops.settings.hidden) { clearInterval(relayPollTimer); relayPollTimer = null; return; }
+      refreshRelayStatus();
+    }, 2500);
+  }
+}
 function togglePop(name) {
   for (const [k, el] of Object.entries(pops)) el.hidden = k === name ? !el.hidden : true;
   if (name === 'actions' && !pops.actions.hidden) { updateActPreview(); $('#act-prefix').focus(); }
+  syncRelayPoll();
 }
 $('#settings-btn').onclick = () => togglePop('settings');
 $('#act-btn').onclick = () => togglePop('actions');
 document.addEventListener('mousedown', (e) => {
   if (e.target.closest('#settings-btn,#act-btn')) return;
   for (const el of Object.values(pops)) if (!el.hidden && !el.contains(e.target)) el.hidden = true;
+  syncRelayPoll();
 });
 const anyPopOpen = () => Object.values(pops).some((el) => !el.hidden);
-const closePops = () => Object.values(pops).forEach((el) => (el.hidden = true));
+const closePops = () => { Object.values(pops).forEach((el) => (el.hidden = true)); syncRelayPoll(); };
+
+async function setLocalRelay(wantOn) {
+  if (!native.canHost || relayBusy) return;
+  relayBusy = true;
+  renderRelayUI();
+  try {
+    if (wantOn) {
+      relayInfo = await native.relayStart({ name: state.name || prefs.name || '' });
+      renderRelayUI();
+      // 当前如果处于断线重连态，自动切到刚启动的本机服务
+      if (state.entered && state.session && (!state.ws || state.ws.readyState !== WebSocket.OPEN)) {
+        const old = state.ws;
+        state.ws = null;
+        old?.close();
+        state.wsUrl = toWsUrl(relayInfo.localAddr);
+        state.retry = 0;
+        renderRelayUI();
+        connect().catch(() => {});
+        toast(`已启动并切到本机服务：${relayInfo.shareAddr}`);
+      } else {
+        toast(`本机服务已启动：${relayInfo.shareAddr}`);
+      }
+    } else {
+      const wasUsingLocal = state.wsUrl && isLocalRelayHost(shortServer(state.wsUrl));
+      relayInfo = await native.relayStop();
+      renderRelayUI();
+      toast(wasUsingLocal ? '已停止本机服务（当前会话已断开）' : '已停止本机局域网服务');
+    }
+  } catch (err) {
+    toast(typeof err === 'string' ? err : err?.message || '操作本机服务失败');
+  } finally {
+    relayBusy = false;
+    renderRelayUI();
+  }
+}
+$('#relay-toggle').onchange = (e) => setLocalRelay(e.target.checked);
+
+async function shareableServerAddr() {
+  if (native.canHost) {
+    await refreshRelayStatus();
+    if (isLocalRelayHost(shortServer(state.wsUrl))) return relayInfo.shareAddr;
+  }
+  return shortServer(state.wsUrl);
+}
+
+async function hostCommand() {
+  if (!native.canHost) { toast('桌面客户端才支持开启本机服务'); return; }
+  await refreshRelayStatus();
+  if (!relayInfo.running) await setLocalRelay(true);
+  if (relayInfo.running) {
+    const ok = await copyText(relayInfo.shareAddr);
+    toast(ok ? `本机服务运行中（${relayInfo.clients} 连接），已复制 ${relayInfo.shareAddr}` : `本机服务：${relayInfo.shareAddr}`);
+  }
+}
 
 $('#wipe-btn').onclick = () => wipeScreen();
 $('#share-btn').onclick = async () => {
-  const addr = shortServer(state.wsUrl);
+  const addr = await shareableServerAddr();
   toast((await copyText(addr)) ? `已复制服务器地址 ${addr}（口令请单独告诉对方）` : addr);
 };
 // 清空当前会话（双方一起）
@@ -1173,6 +1358,7 @@ function leave() {
   setBoss(false);
   $('#main').hidden = true;
   $('#join').hidden = false;
+  refreshRelayStatus(true);
   $('#pass').focus();
   fillSavedKey();
 }
@@ -1208,6 +1394,7 @@ function command(text) {
   const [cmd, arg] = text.split(/\s+/);
   switch (cmd) {
     case '/cls': wipeScreen(); return true;
+    case '/host': hostCommand(); return true;
     case '/clear': clearConv(); return true;
     case '/update': checkForUpdate({ manual: true }); return true;
     case '/keep': setCfg({ ...state.cfg, keep: arg }, true); return true;

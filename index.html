@@ -18,7 +18,10 @@
         <label>Server
           <div class="pw srv">
             <input id="server" list="server-list" placeholder="192.168.1.5:10686" spellcheck="false" />
-            <button type="button" id="srv-scan" class="pw-btn gen" title="在局域网里查找服务器" hidden>Scan</button>
+            <div class="srv-btns" id="srv-btns" hidden>
+              <button type="button" id="srv-host" class="pw-btn gen" title="在本机启动局域网服务器，其他人打开客户端即可自动发现">Host</button>
+              <button type="button" id="srv-scan" class="pw-btn gen" title="在局域网里查找服务器">Scan</button>
+            </div>
           </div>
           <datalist id="server-list"></datalist>
           <span class="field-hint" id="server-hint">&nbsp;</span>
@@ -192,6 +195,10 @@
             <span>Fingerprint<small>双方一致 = 口令相同</small></span>
             <code id="fp">----</code>
           </div>
+          <div class="row" id="relay-row" hidden>
+            <span>Local relay<small id="relay-sub">本机充当局域网服务器，其他人可自动发现</small></span>
+            <input type="checkbox" id="relay-toggle" class="switch" />
+          </div>
           <div class="row">
             <span>Server</span>
             <code id="server-info">-</code>
@@ -207,7 +214,7 @@
             <button type="button" id="clear-btn" title="清空当前会话（双方一起）">Clear context</button>
             <button type="button" id="leave-btn" class="danger">Leave</button>
           </div>
-          <div class="keys"><kbd>Esc</kbd> 伪装页 · <kbd>/cls</kbd> 清屏 · <kbd>/clear</kbd> <kbd>/keep 3</kbd> <kbd>/ttl 30</kbd> <kbd>/leave</kbd></div>
+          <div class="keys"><kbd>Esc</kbd> 伪装页 · <kbd>/cls</kbd> 清屏 · <kbd>/host</kbd> 本机服务 · <kbd>/clear</kbd> <kbd>/keep 3</kbd> <kbd>/ttl 30</kbd> <kbd>/leave</kbd></div>
         </div>
         <div class="drop-hint"><div>Drop to attach<small>端到端加密 · 阅后即焚</small></div></div>
         <div class="toast" id="toast" hidden></div>

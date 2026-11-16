@@ -83,10 +83,17 @@ fn hardware_id() -> Option<String> {
     std::fs::read_to_string("/etc/machine-id").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
-fn host_name() -> Option<String> {
+pub(crate) fn host_name() -> Option<String> {
     if let Ok(n) = std::env::var("COMPUTERNAME") {
-        return Some(n);
+        return Some(n).filter(|s| !s.is_empty());
     }
-    let out = Command::new("hostname").output().ok()?;
+    #[allow(unused_mut)]
+    let mut cmd = Command::new("hostname");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    let out = cmd.output().ok()?;
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|s| !s.is_empty())
 }

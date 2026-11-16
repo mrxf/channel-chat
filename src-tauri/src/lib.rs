@@ -1,5 +1,6 @@
 mod discovery;
 mod prefs;
+mod relay;
 mod secret;
 mod updater;
 mod vault;
@@ -50,6 +51,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .manage(vault::Vault::default())
+        .manage(relay::RelayState::default())
         .manage(updater::UpdaterState::default())
         .register_uri_scheme_protocol(vault::SCHEME, vault::protocol)
         .invoke_handler(tauri::generate_handler![
@@ -57,6 +59,9 @@ pub fn run() {
             request_attention,
             discovery::discover_servers,
             discovery::scan_subnet,
+            relay::relay_start,
+            relay::relay_stop,
+            relay::relay_status,
             secret::secret_get,
             secret::secret_set,
             secret::secret_delete,
@@ -89,7 +94,12 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, e| match e.id().as_ref() {
                     "show" => show_main(app),
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        if let Some(r) = app.try_state::<relay::RelayState>() {
+                            r.shutdown();
+                        }
+                        app.exit(0);
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, e| {
@@ -114,6 +124,11 @@ pub fn run() {
         #[cfg(target_os = "macos")]
         if let RunEvent::Reopen { .. } = event {
             show_main(app);
+        }
+        if let RunEvent::Exit = event {
+            if let Some(r) = app.try_state::<relay::RelayState>() {
+                r.shutdown();
+            }
         }
         let _ = (app, event);
     });

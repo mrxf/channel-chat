@@ -734,6 +734,9 @@ pub fn update_restart(app: AppHandle, state: State<'_, UpdaterState>) -> Result<
     if let Some(vault) = app.try_state::<crate::vault::Vault>() {
         vault.clear();
     }
+    if let Some(relay) = app.try_state::<crate::relay::RelayState>() {
+        relay.shutdown();
+    }
 
     match plan {
         RestartPlan::MacApp(bundle) => {

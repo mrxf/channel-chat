@@ -425,9 +425,17 @@ kbd { font: 10.5px ui-monospace, Menlo, monospace; border: 1px solid var(--line)
 
 .join-card { position: relative; }
 .join-ver { position: absolute; right: 16px; bottom: 12px; font-size: 11px; color: var(--muted); opacity: 0.6; font-variant-numeric: tabular-nums; }
-.srv input { padding-right: 64px; }
+.srv input { padding-right: 124px; }
 .srv input:has(+ [hidden]) { padding-right: 12px; }
+.srv-btns { position: absolute; right: 5px; display: flex; align-items: center; gap: 4px; }
+.srv-btns .pw-btn { position: static; }
 .srv .pw-btn:disabled { opacity: 0.6; cursor: default; }
+.srv .pw-btn.hosting {
+  border-color: color-mix(in srgb, var(--good) 55%, var(--line));
+  color: var(--good);
+  background: color-mix(in srgb, var(--good) 12%, var(--panel));
+}
+.srv .pw-btn.hosting:hover { background: color-mix(in srgb, var(--good) 20%, var(--panel)); }
 .join-card:has(.join-ver) { padding-bottom: 36px; }
 
 .join-card label.remember { flex-direction: row; align-items: center; gap: 7px; margin: -6px 0 4px; font-size: 12.5px; font-weight: 400; color: var(--text); cursor: pointer; }

@@ -95,6 +95,23 @@ export const native = {
     try { return await invoke('scan_subnet', { port }); } catch { return []; }
   },
 
+  /** 内置局域网服务器（Host 模式）：在本机监听 10686..10700 并通过 mDNS 广播 */
+  canHost: inTauri,
+  async relayStart({ name = '', port = null } = {}) {
+    if (!inTauri) throw new Error('浏览器模式不支持启动本机服务');
+    return await invoke('relay_start', { name: name || null, port });
+  },
+  async relayStop() {
+    const empty = { running: false, name: '', port: 0, localAddr: '', shareAddr: '', addrs: [], clients: 0, rooms: 0 };
+    if (!inTauri) return empty;
+    try { return await invoke('relay_stop'); } catch { return empty; }
+  },
+  async relayStatus() {
+    const empty = { running: false, name: '', port: 0, localAddr: '', shareAddr: '', addrs: [], clients: 0, rooms: 0 };
+    if (!inTauri) return empty;
+    try { return await invoke('relay_status'); } catch { return empty; }
+  },
+
   attention() {
     if (inTauri) invoke('request_attention').catch(() => {});
   },

@@ -216,8 +216,34 @@ input:focus, select:focus { border-color: var(--muted); box-shadow: 0 0 0 3px co
 .conv-tag { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; font-size: 12px; color: var(--muted); padding-left: 4px; }
 .conv-tag .who { font-weight: 400; color: var(--muted); white-space: nowrap; }
 .conv-tag .off { color: var(--muted); opacity: 0.8; }
-/* 群聊里自己消息的已读进度 */
-.rc { text-align: right; font-size: 11px; color: var(--muted); margin-top: 4px; }
+/* 消息底部操作栏（清除隐藏按钮 + 已读状态图标） */
+.msg-foot { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; padding: 0 2px; }
+.msg-foot.agent-foot { justify-content: flex-start; margin-left: -3px; }
+.item.media .msg-foot { margin-top: 0; }
+.msg-clear {
+  display: inline-grid; place-items: center; width: 20px; height: 18px; border-radius: 5px;
+  color: var(--muted); opacity: 0.42; transition: opacity 0.15s, background 0.15s, color 0.15s; flex: none;
+}
+.item:hover .msg-clear { opacity: 0.78; }
+.msg-clear:hover { opacity: 1 !important; background: var(--hover); color: var(--bad); }
+.act-item .msg-clear { width: 18px; height: 16px; margin: 0 -4px 0 0; }
+/* 自己消息的已读状态图标 */
+.rc {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 2px; font-size: 11px; line-height: 1;
+  color: var(--muted); opacity: 0.65; font-variant-numeric: tabular-nums;
+  transition: color 0.25s ease, opacity 0.25s ease;
+}
+.rc svg { display: block; flex: none; }
+.rc.none { opacity: 0.4; }
+.rc.part { opacity: 0.9; }
+.rc.read { color: var(--good); opacity: 1; }
+.rc.read svg { animation: rc-pop 0.26s ease-out; }
+@keyframes rc-pop {
+  0% { transform: scale(0.82); opacity: 0.5; }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
 .msg.agent { padding-left: 12px; margin-left: -12px; border-left: 2px solid transparent; transition: border-color 0.6s; }
 .msg.agent.unread { border-left-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 [data-theme='dark'] .msg.agent.unread { border-left-color: #d9775788; }
@@ -244,7 +270,7 @@ pre code { background: none; padding: 0; color: inherit; font-size: 12.5px; }
 [data-theme='dark'] .act-ico { color: #d97757; }
 
 .ttl { height: 2px; background: var(--line); border-radius: 2px; margin-top: 8px; overflow: hidden; }
-.msg.user .ttl { margin-left: auto; width: 60%; }
+.msg.user .ttl { margin-top: 5px; margin-left: auto; width: 60%; }
 .ttl i { display: block; height: 100%; background: var(--accent); transform-origin: left; animation: ttl linear forwards; }
 @keyframes ttl { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 

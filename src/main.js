@@ -37,7 +37,9 @@ const state = {
   active: GROUP, online: 1, cfg: { keep: 1, ttl: 0, mview: 10 }, cfgTouched: false,
   serverMedia: false, serverDirect: false, incoming: new Map(),
   items: [], seen: new Set(), boss: false, retry: 0, compacted: new Set(),
-  serverActions: [], lastAction: 0, lastNotify: 0, unread: -1, receipts: new Map(), // 会话 → 待发送的已读回执
+  serverActions: [], lastAction: 0, lastNotify: 0, unread: -1,
+  receipts: new Map(), // 会话 → 待发送的已读回执
+  acked: new Map(),    // 会话 → 最近已读的消息 ID（断线重连后补发回执，避免对方卡未读）
 };
 
 /* ---------------- 工具 ---------------- */
@@ -121,16 +123,22 @@ function rekeyMember(p, cid) {
   state.members.delete(p.cid);
   p.cid = cid;
   state.members.set(cid, p);
+  let dropped = false;
   for (const it of state.items) {
     if (it.conv === from) it.conv = to;
     if (it.cid === old) it.cid = cid; // 他之前发的消息仍然算他的（轮次、回执）
-    for (const set of [it.need, it.readBy, it.recvBy, it.viewBy]) if (set?.delete(old)) set.add(cid);
+    // cid 变了说明对方重启了客户端，内存里的旧消息已消失，不可能再发回旧消息的已读回执
+    if (it.need?.delete(old)) { progress(it); dropped = true; }
+    for (const set of [it.readBy, it.recvBy, it.viewBy]) if (set?.delete(old)) set.add(cid);
   }
   const t = threadEl(from);
   if (t) t.dataset.conv = to;
-  if (state.receipts.has(from)) { state.receipts.set(to, state.receipts.get(from)); state.receipts.delete(from); }
+  for (const map of [state.receipts, state.acked]) {
+    if (map.has(from)) { map.set(to, map.get(from)); map.delete(from); }
+  }
   if (state.compacted.delete(from)) state.compacted.add(to);
   if (state.active === from) state.active = to;
+  if (dropped) enforceKeep();
 }
 
 /** 显示用的名称和颜色：重名时加上 cid 前缀区分；代号模式下每人一个固定的子 Agent 名 */
@@ -170,6 +178,7 @@ function refreshLabels() {
     el.lastChild.textContent = l.text;
     el.querySelector('i').style.background = l.color;
   });
+  for (const it of state.items) if (it.mine && it.kind === 'msg') renderReceipt(it);
   renderRecents();
   renderHeader();
 }
@@ -473,8 +482,13 @@ function connect(first = false) {
           markAllOffline(); // 自己重连：等其他人回 hi 再恢复在线；私聊记录保留
           updateCount(m.count);
           send({ t: 'hello', caps: CAPS, v: APP_VERSION });
-          // 重连后几秒内没回来的人，之后再进来要正常提示 connected
-          setTimeout(() => { for (const p of state.members.values()) p.quiet = false; }, 5000);
+          // 重连后几秒内没回来的人视为已离线：不再等他们的旧消息回执，之后再进来也正常提示 connected
+          setTimeout(() => {
+            for (const p of state.members.values()) {
+              p.quiet = false;
+              if (!p.online) dropFromNeed(p.cid);
+            }
+          }, 5000);
           if (!done) { done = true; clearTimeout(timeout); resolve(); }
           break;
         case 'join':
@@ -544,16 +558,27 @@ function markAllOffline() {
   if (state.entered) { renderRecents(); renderHeader(); }
 }
 
+/** 移除某成员未完成的回执等待，并在状态变化后重新检查保留轮数 */
+function dropFromNeed(cid) {
+  let touched = false;
+  for (const it of state.items) {
+    if (!it.mine || !it.need?.has(cid)) continue;
+    if (it.kind === 'media' ? !it.viewBy.has(cid) : !it.readBy.has(cid)) {
+      it.need.delete(cid);
+      progress(it);
+      touched = true;
+    }
+  }
+  if (touched) enforceKeep();
+}
+
 /** 有人离开：更新侧栏；我发出的消息不再等他的已读回执 */
 function memberGone(p) {
   p.online = false;
   p.conn = null;
   sys(`MCP server ${whoHTML(p, 'who')} disconnected`);
   if (threadEl(dmConv(p.cid))) sys(`MCP server ${whoHTML(p, 'who')} disconnected`, dmConv(p.cid));
-  for (const it of state.items) {
-    if (!it.mine || !it.need?.has(p.cid)) continue;
-    if (it.kind === 'media' ? !it.viewBy.has(p.cid) : !it.readBy.has(p.cid)) { it.need.delete(p.cid); progress(it); }
-  }
+  dropFromNeed(p.cid);
   refreshLabels();
 }
 
@@ -584,13 +609,19 @@ function onInner(from, m) {
     case 'hello': // 新人进来：回 hi 并同步设置
     case 'hi':
       checkPeerVersion(p, m);
-      if (m.t === 'hello') send({ t: 'hi', cfg: state.cfg, caps: CAPS, v: APP_VERSION }, from);
-      else if (!state.cfgTouched && m.cfg) { setCfg(m.cfg, false); state.cfgTouched = true; }
+      if (m.t === 'hello') {
+        send({ t: 'hi', cfg: state.cfg, caps: CAPS, v: APP_VERSION }, from);
+        if (!isNew) resendAcked(p, from); // 对方断线重连：补发最近已读回执
+      } else {
+        if (!state.cfgTouched && m.cfg) { setCfg(m.cfg, false); state.cfgTouched = true; }
+        if (p.quiet) resendAcked(p, from); // 自己断线重连：补发离线期间读完的回执
+      }
       if ((isNew || back) && !p.quiet) {
         sys(`MCP server ${whoHTML(p, 'who')} connected`);
         if (back && threadEl(dmConv(p.cid))) sys(`MCP server ${whoHTML(p, 'who')} connected`, dmConv(p.cid));
       }
       p.quiet = false;
+      flushReceipts();
       refreshLabels();
       break;
     case 'cfg':
@@ -613,8 +644,12 @@ function onInner(from, m) {
       if (!Array.isArray(m.ids)) return;
       for (const id of m.ids.slice(0, 100)) {
         const it = state.items.find((i) => i.id === id && i.mine && i.conv === conv && i.kind !== 'media');
-        if (!it || it.read) continue;
-        if (it.need) { it.readBy.add(p.cid); progress(it); } else markRead(it);
+        if (!it) continue;
+        if (it.need) {
+          if (!it.readBy.has(p.cid)) { it.readBy.add(p.cid); progress(it); }
+        } else if (!it.read) {
+          markRead(it);
+        }
       }
       break;
     case 'media':
@@ -651,9 +686,55 @@ function recipients(conv, cap) {
   return { need, total: need.size, readBy: new Set() };
 }
 
+const RC_NONE = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="5" stroke-dasharray="2.2 2.2"/></svg>';
+const RC_SENT = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3.8 8.5l2.8 2.8 5.5-6.5"/></svg>';
+const RC_READ = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8.5l2.8 2.8 5.5-6.5M7.6 10.1l1.2 1.2 5.5-6.5"/></svg>';
+
+/** 渲染自己发出的文字消息的已读小图标（单勾 = 已发送，绿色双勾 = 已读） */
+function renderReceipt(it) {
+  const rc = it.el?.querySelector('.rc');
+  if (!rc) return false;
+  const n = it.readBy?.size ?? 0;
+  const total = it.total ?? 0;
+  const done = n > 0 && [...(it.need || [])].every((c) => it.readBy.has(c));
+  const names = [...(it.readBy || [])].map((c) => state.members.get(c)).filter(Boolean).map((p) => labelOf(p).text);
+  const who = names.length ? `：${names.join('、')}` : '';
+
+  let cls, ico, count = '', tip;
+  if (total === 0 && n === 0) {
+    cls = 'none'; ico = RC_NONE; tip = '未送达 · 发送时无人在线';
+  } else if (done) {
+    cls = 'read'; ico = RC_READ;
+    if (total > 1 && n < total) {
+      count = `${n}/${total}`;
+      tip = `已读 ${n}/${total}（其余已离线）${who}`;
+    } else {
+      tip = total > 1 ? `全部已读${who}` : '对方已读';
+    }
+  } else if (n > 0) {
+    cls = 'part'; ico = RC_READ;
+    count = `${Math.min(n, total)}/${total}`;
+    tip = `已读 ${Math.min(n, total)}/${total}${who}`;
+  } else {
+    cls = 'sent'; ico = RC_SENT;
+    if (total > 1) count = `0/${total}`;
+    tip = total > 1
+      ? `已发送 · 0/${total} 已读`
+      : (it.need?.size === 0 ? '已发送 · 对方已离线（未读）' : '已发送 · 未读');
+  }
+
+  const key = `${cls}|${count}`;
+  if (rc.dataset.state !== key) {
+    rc.dataset.state = key;
+    rc.className = `rc ${cls}`;
+    rc.innerHTML = `${ico}${count ? `<span class="rc-n">${count}</span>` : ''}`;
+  }
+  rc.title = tip;
+  return done;
+}
+
 function progress(it) {
   if (!it.el) return;
-  const total = it.need.size;
   if (it.kind === 'media') {
     if (it.status === 'viewed' || it.status === 'sending' || it.status === 'failed') return;
     const viewed = [...it.need].every((c) => it.viewBy.has(c));
@@ -662,10 +743,7 @@ function progress(it) {
     else if (it.recvBy.size) setMediaStatus(it, 'delivered');
     return;
   }
-  const rc = it.el.querySelector('.rc');
-  const done = it.readBy.size > 0 && [...it.need].every((c) => it.readBy.has(c));
-  if (rc) rc.textContent = done ? 'Read' : `Read ${Math.min(it.readBy.size, it.total)}/${it.total}`;
-  if (done) markRead(it);
+  if (renderReceipt(it)) markRead(it);
 }
 
 function setStatus(text, kind) {
@@ -683,6 +761,9 @@ function updateCount(n) {
  *   - 自己发的消息：发送时在线的人都发回已读回执后才算「已读」
  *   - 只有已读消息参与「保留 N 条」和倒计时焚毁；未读消息不会被焚毁
  * ================================================================ */
+const ICON_CLEAR = '<svg viewBox="0 0 16 16" width="12.5" height="12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.2h10.4M6 4.2V3c0-.4.3-.7.7-.7h2.6c.4 0 .7.3.7.7v1.2M4.2 4.2l.55 8.3c.04.55.5 1 1.05 1h4.4c.55 0 1.01-.45 1.05-1l.55-8.3M6.7 7v4M9.3 7v4"/></svg>';
+const CLEAR_BTN = `<button type="button" class="msg-clear" title="清除并隐藏此消息（仅本地）">${ICON_CLEAR}</button>`;
+
 function addItem(it) {
   Object.assign(it, { seen: it.mine, read: false, readMs: 0, timer: null });
   it.dwell = it.kind === 'msg' ? Math.min(8000, 1500 + it.text.length * 60) : 600;
@@ -696,19 +777,20 @@ function addItem(it) {
   } else if (it.kind === 'action') {
     el.className = 'item act-item';
     el.innerHTML = it.mine
-      ? `<span class="act-ico">⌁</span><span><b>你</b>${esc(actionText(it.action, it.target))}</span>`
-      : `<span class="act-ico">⌁</span><span>${whoHTML(sender, 'who')}${esc(actionText(it.action, it.all ? '大家' : '你'))}</span>`;
+      ? `<span class="act-ico">⌁</span><span><b>你</b>${esc(actionText(it.action, it.target))}</span>${CLEAR_BTN}`
+      : `<span class="act-ico">⌁</span><span>${whoHTML(sender, 'who')}${esc(actionText(it.action, it.all ? '大家' : '你'))}</span>${CLEAR_BTN}`;
   } else if (it.mine) {
     el.className = 'item msg user';
-    // 群聊里有两人以上接收时显示「Read 1/2」
-    el.innerHTML = `<div class="bubble">${format(it.text)}</div>${it.total > 1 ? `<div class="rc">Read 0/${it.total}</div>` : ''}`;
+    el.innerHTML = `<div class="bubble">${format(it.text)}</div><div class="msg-foot">${CLEAR_BTN}<span class="rc"></span></div>`;
   } else {
     const n = hashNum(it.id);
     el.className = 'item msg agent unread';
     el.innerHTML = `<div class="agent-head">${mark}<span class="tool">${esc(toolLine(n))} <i>›</i></span>${whoHTML(sender)}</div>
-      <div class="prose">${format(it.text)}</div>`;
+      <div class="prose">${format(it.text)}</div>
+      <div class="msg-foot agent-foot">${CLEAR_BTN}</div>`;
   }
   it.el = el;
+  if (it.mine && it.kind === 'msg') renderReceipt(it);
   threadOf(it.conv).appendChild(el);
   state.items.push(it);
   if (it.kind === 'media') setMediaStatus(it, it.status, 0);
@@ -740,11 +822,25 @@ setInterval(() => {
   if (changed) updateUnread(false);
 }, TICK);
 
+function rememberAck(conv, id) {
+  let list = state.acked.get(conv);
+  if (!list) { list = []; state.acked.set(conv, list); }
+  if (!list.includes(id)) list.push(id);
+  if (list.length > 60) list.splice(0, list.length - 60);
+}
+function resendAcked(p, to) {
+  const g = state.acked.get(GROUP);
+  if (g?.length) send({ t: 'read', ids: g }, to);
+  const dm = state.acked.get(dmConv(p.cid));
+  if (dm?.length) send({ t: 'read', ids: dm, dm: p.cid }, to);
+}
+
 function markRead(it) {
   if (it.read) return;
   it.read = true;
   it.el?.classList.remove('unread');
   if (!it.mine && it.kind === 'msg') {
+    rememberAck(it.conv, it.id);
     if (!state.receipts.has(it.conv)) state.receipts.set(it.conv, []);
     state.receipts.get(it.conv).push(it.id);
   }
@@ -754,14 +850,14 @@ function markRead(it) {
 
 function flushReceipts() {
   for (const [conv, ids] of state.receipts) {
-    if (ids.length) sendTo(conv, { t: 'read', ids: ids.splice(0, 100) });
+    if (ids.length && sendTo(conv, { t: 'read', ids: ids.slice(0, 100) })) ids.splice(0, 100);
     if (!ids.length) state.receipts.delete(conv);
   }
 }
 
 /**
  * 「保留 N 轮」：同一个人连续发的消息算一轮，换人说话才算新的一轮。
- * 每个会话只保留最近 N 轮；更早的轮次里，已读的消息焚毁，未读的继续保留。
+ * 每个会话只保留最近 N 轮；更早的轮次里，已读的消息（或我发出的但已无在线接收者可回执的消息）焚毁，未读的继续保留。
  * 例：N = 1 时 A 连发 5 条会全部留着，等 B 回复后 A 那一轮读完的消息才焚毁。
  */
 function enforceKeep() {
@@ -773,7 +869,7 @@ function enforceKeep() {
       const m = msgs[k];
       const who = m.mine ? '' : m.cid;
       if (who !== prev) { turn++; prev = who; }
-      if (turn > state.cfg.keep && m.read) burn(m);
+      if (turn > state.cfg.keep && (m.read || (m.mine && !m.need?.size))) burn(m);
     }
   }
 }
@@ -798,7 +894,7 @@ function resetTimers() {
   }
 }
 
-function burn(it) {
+function burn(it, instant = false) {
   const i = state.items.indexOf(it);
   if (i < 0) return;
   state.items.splice(i, 1);
@@ -807,22 +903,66 @@ function burn(it) {
   it.text = null; it.action = null;
   const el = it.el;
   it.el = null;
-  el.style.height = el.offsetHeight + 'px';
-  el.classList.add('burning');
-  setTimeout(() => el.remove(), 650);
-  if (!state.compacted.has(it.conv) && it.kind === 'msg') {
-    state.compacted.add(it.conv);
-    const c = document.createElement('div');
-    c.className = 'compact';
-    c.textContent = 'Earlier context compacted';
-    threadOf(it.conv).prepend(c);
+  if (instant) {
+    el.remove();
+  } else {
+    el.style.height = el.offsetHeight + 'px';
+    el.classList.add('burning');
+    setTimeout(() => el.remove(), 650);
+    if (!state.compacted.has(it.conv) && it.kind === 'msg') {
+      state.compacted.add(it.conv);
+      const c = document.createElement('div');
+      c.className = 'compact';
+      c.textContent = 'Earlier context compacted';
+      threadOf(it.conv).prepend(c);
+    }
   }
   updateUnread(false);
   // 离线成员的私聊焚毁完了，侧栏里就不再显示
   if (isDm(it.conv) && !convPeer(it.conv)?.online && !convItems(it.conv).length) renderRecents();
 }
-function burnAll() { [...state.items].forEach(burn); }
-function burnConv(conv) { convItems(conv).forEach(burn); }
+function burnAll() { state.acked.clear(); [...state.items].forEach(burn); }
+function burnConv(conv) {
+  state.acked.delete(conv);
+  convItems(conv).forEach((it) => burn(it, true));
+  state.compacted.delete(conv);
+  const t = threadEl(conv);
+  if (t) t.innerHTML = '';
+}
+
+/** 清屏：立即清空自己当前屏幕上的所有消息与提示（仅本地，不影响对方屏幕；未读消息顺带发回执） */
+function wipeScreen(conv = state.active) {
+  for (const it of convItems(conv)) {
+    if (!it.mine) {
+      it.seen = true;
+      if (!it.read && it.kind === 'msg') {
+        rememberAck(it.conv, it.id);
+        if (!state.receipts.has(it.conv)) state.receipts.set(it.conv, []);
+        state.receipts.get(it.conv).push(it.id);
+      }
+    }
+    burn(it, true);
+  }
+  flushReceipts();
+  state.compacted.delete(conv);
+  const t = threadEl(conv);
+  if (t) t.innerHTML = '';
+}
+
+/** 手动清除单条消息（仅本地隐藏并清零内存；若是未读的对方消息则顺带发回执，避免对方也卡未读） */
+function dismissItem(it) {
+  if (!it.mine) {
+    it.seen = true;
+    if (!it.read && it.kind === 'msg') {
+      rememberAck(it.conv, it.id);
+      if (!state.receipts.has(it.conv)) state.receipts.set(it.conv, []);
+      state.receipts.get(it.conv).push(it.id);
+      flushReceipts();
+    }
+  }
+  burn(it);
+  enforceKeep();
+}
 
 function nudge() {
   const chat = $('#chat');
@@ -999,6 +1139,7 @@ document.addEventListener('mousedown', (e) => {
 const anyPopOpen = () => Object.values(pops).some((el) => !el.hidden);
 const closePops = () => Object.values(pops).forEach((el) => (el.hidden = true));
 
+$('#wipe-btn').onclick = () => wipeScreen();
 $('#share-btn').onclick = async () => {
   const addr = shortServer(state.wsUrl);
   toast((await copyText(addr)) ? `已复制服务器地址 ${addr}（口令请单独告诉对方）` : addr);
@@ -1015,7 +1156,7 @@ function leave() {
     session: null, ws: null, entered: false, cfgTouched: false, active: GROUP,
     cfg: { keep: 1, ttl: 0, mview: 10 }, items: [],
   });
-  for (const k of ['members', 'conns', 'seen', 'incoming', 'receipts', 'compacted']) state[k].clear();
+  for (const k of ['members', 'conns', 'seen', 'incoming', 'receipts', 'acked', 'compacted']) state[k].clear();
   native.mediaClear();
   ws?.close();
   runner.stop();
@@ -1059,6 +1200,7 @@ $('#composer').onsubmit = (e) => {
 function command(text) {
   const [cmd, arg] = text.split(/\s+/);
   switch (cmd) {
+    case '/cls': wipeScreen(); return true;
     case '/clear': clearConv(); return true;
     case '/keep': setCfg({ ...state.cfg, keep: arg }, true); return true;
     case '/ttl': setCfg({ ...state.cfg, ttl: arg }, true); return true;
@@ -1139,7 +1281,10 @@ function mediaHTML(it, sender) {
       <div class="m-over"></div>
       <div class="m-ttl"><i></i></div>
     </div>
-    ${it.mine ? `<div class="m-meta">${label}</div>` : ''}`;
+    <div class="msg-foot ${it.mine ? '' : 'agent-foot'}">
+      ${it.mine ? `<span class="m-meta">${label}</span>` : ''}
+      ${CLEAR_BTN}
+    </div>`;
 }
 
 function setMediaStatus(it, status, pct = 0) {
@@ -1381,8 +1526,16 @@ function cleanupMedia(it) {
   if (DEBUG_MEDIA && !it.mine) send({ t: 'debug', ev: 'burned', id: it.id });
 }
 
-// 点击：查看 / 放大
+// 点击：单条清除 / 查看附件 / 放大
 $('#threads').addEventListener('click', (e) => {
+  const clearBtn = e.target.closest('.msg-clear');
+  if (clearBtn) {
+    const row = clearBtn.closest('.item');
+    const it = row && state.items.find((i) => i.id === row.dataset.id);
+    if (it) dismissItem(it);
+    else row?.remove();
+    return;
+  }
   const card = e.target.closest('.item.media');
   if (!card) return;
   const it = state.items.find((i) => i.id === card.dataset.id);

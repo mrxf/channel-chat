@@ -85,6 +85,7 @@
           <div class="title" id="title" data-tauri-drag-region>Session</div>
           <div class="conv-tag" id="conv-tag" hidden></div>
           <div class="spacer" data-tauri-drag-region></div>
+          <button class="chip ghost" id="wipe-btn" title="清屏：隐藏当前屏幕所有消息（仅本地）">Clear</button>
           <button class="chip ghost" id="share-btn" title="复制服务器地址（不含口令）">Share</button>
           <button class="icon ghost" id="settings-btn" title="Settings">⋯</button>
         </header>
@@ -201,7 +202,7 @@
             <button type="button" id="clear-btn" title="清空当前会话（双方一起）">Clear context</button>
             <button type="button" id="leave-btn" class="danger">Leave</button>
           </div>
-          <div class="keys"><kbd>Esc</kbd> 伪装页 · <kbd>/clear</kbd> <kbd>/keep 3</kbd> <kbd>/ttl 30</kbd> <kbd>/leave</kbd></div>
+          <div class="keys"><kbd>Esc</kbd> 伪装页 · <kbd>/cls</kbd> 清屏 · <kbd>/clear</kbd> <kbd>/keep 3</kbd> <kbd>/ttl 30</kbd> <kbd>/leave</kbd></div>
         </div>
         <div class="drop-hint"><div>Drop to attach<small>端到端加密 · 阅后即焚</small></div></div>
         <div class="toast" id="toast" hidden></div>

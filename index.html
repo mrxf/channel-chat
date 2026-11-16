@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23d97757'/%3E%3Cpath d='M16 7l2.2 6.8L25 16l-6.8 2.2L16 25l-2.2-6.8L7 16l6.8-2.2z' fill='white'/%3E%3C/svg%3E" />
+    <title>Agent</title>
+  </head>
+  <body>
+    <!-- 登录（伪装成 workspace 登录） -->
+    <section id="join" class="join" data-tauri-drag-region>
+      <form id="join-form" class="join-card" autocomplete="off" novalidate>
+        <div class="brand-mark lg"></div>
+        <h1>Welcome back</h1>
+        <p class="muted">Open a workspace session to continue.</p>
+
+        <label>Server
+          <div class="pw srv">
+            <input id="server" list="server-list" placeholder="192.168.1.5:10686" spellcheck="false" />
+            <button type="button" id="srv-scan" class="pw-btn gen" title="在局域网里查找服务器" hidden>Scan</button>
+          </div>
+          <datalist id="server-list"></datalist>
+          <span class="field-hint" id="server-hint">&nbsp;</span>
+        </label>
+
+        <label>Display name
+          <input id="name" maxlength="24" placeholder="e.g. dev-mac" spellcheck="false" />
+        </label>
+
+        <label>Session key
+          <div class="pw">
+            <input id="pass" type="password" placeholder="Shared secret" spellcheck="false" />
+            <button type="button" id="pw-toggle" class="pw-btn" title="显示 / 隐藏">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+            <button type="button" id="pw-gen" class="pw-btn gen" title="生成随机口令并复制">Generate</button>
+          </div>
+          <span class="field-hint" id="pass-hint">&nbsp;</span>
+        </label>
+        <label class="remember" id="remember-row" hidden>
+          <input type="checkbox" id="remember-key" />
+          <span>Remember on this Mac</span>
+          <small>口令加密保存在本机，只能在这台 Mac 上解开</small>
+        </label>
+
+        <button id="join-btn" class="primary" type="submit">Continue</button>
+        <p class="form-error" id="join-error" hidden></p>
+        <span class="join-ver" id="join-ver"></span>
+        <p class="hint">Key is stretched locally (scrypt) and never leaves this device.<br />Messages are end-to-end encrypted (XChaCha20-Poly1305).</p>
+      </form>
+    </section>
+
+    <!-- 主界面（伪装成 Agent 工作台） -->
+    <section id="main" class="main" hidden>
+      <aside class="sidebar">
+        <div class="side-top" data-tauri-drag-region>
+          <div class="brand" data-tauri-drag-region><span class="brand-mark"></span><b>Agent</b></div>
+          <button class="icon ghost" id="collapse" title="Toggle sidebar">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+          </button>
+        </div>
+        <button class="new-task" id="new-task"><span>＋</span> New task</button>
+        <nav class="side-nav">
+          <div class="nav-item">⌕ Search</div>
+          <div class="nav-item">◫ Projects</div>
+          <div class="nav-item">⚙ Automations</div>
+        </nav>
+        <div class="recents-title">Recents</div>
+        <ul class="recents" id="recents"></ul>
+        <div class="side-foot">
+          <div class="avatar" id="avatar">D</div>
+          <div class="who">
+            <div id="me-name">dev</div>
+            <div class="status"><i id="dot"></i><span id="status">Connecting…</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="chat" id="chat">
+        <header class="topbar" data-tauri-drag-region>
+          <button class="icon ghost expand-side" id="expand" title="Show sidebar">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+          </button>
+          <div class="title" id="title" data-tauri-drag-region>Session</div>
+          <div class="conv-tag" id="conv-tag" hidden></div>
+          <div class="spacer" data-tauri-drag-region></div>
+          <button class="chip ghost" id="share-btn" title="复制服务器地址（不含口令）">Share</button>
+          <button class="icon ghost" id="settings-btn" title="Settings">⋯</button>
+        </header>
+
+        <div class="runner-wrap" id="runner-wrap"><div class="runner" id="runner"></div></div>
+
+        <div class="scroll" id="scroll">
+          <div id="threads"></div>
+          <div class="thread" id="decoy" hidden></div>
+        </div>
+
+        <footer class="composer-wrap">
+          <form class="composer" id="composer">
+            <textarea id="input" rows="1" maxlength="4000" placeholder="Reply to Agent…"></textarea>
+            <div class="composer-row">
+              <button type="button" class="icon ghost" id="act-btn" title="动作（拍一拍）">＋</button>
+              <button type="button" class="icon ghost" id="attach-btn" title="发送图片 / 视频（阅后即焚）">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l8-8"/></svg>
+              </button>
+              <input type="file" id="file-input" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.m4v,.mov,.webm" multiple hidden />
+              <span class="chip soft" id="ctx-chip">Context 1</span>
+              <div class="spacer"></div>
+              <span class="model">Agent 5 · High</span>
+              <button class="send" id="send" type="submit" aria-label="Send">↑</button>
+            </div>
+          </form>
+          <p class="disclaimer">Agent can make mistakes. Please double-check responses.</p>
+
+          <!-- 动作面板 -->
+          <div class="popover actions-pop" id="actions-pop" hidden>
+            <div class="pop-title">Quick actions <small>发送一个动作给对方</small></div>
+            <div class="act-list" id="act-list"></div>
+            <div class="act-custom">
+              <input id="act-prefix" placeholder="拍了拍" maxlength="200" />
+              <span>对方的</span>
+              <input id="act-suffix" placeholder="电脑（可留空）" maxlength="200" />
+            </div>
+            <div class="act-foot">
+              <span class="act-preview" id="act-preview">对方会看到：…</span>
+              <span class="spacer"></span>
+              <span class="act-count" id="act-count">0/200</span>
+              <button type="button" id="act-save" class="ghost-btn">保存</button>
+              <button type="button" id="act-send" class="send-btn">发送</button>
+            </div>
+          </div>
+        </footer>
+
+        <div class="popover settings-pop" id="settings" hidden>
+          <div class="pop-title">Session settings</div>
+          <div class="row">
+            <span>Context retention<small>只保留最近 N 轮 · 同一个人连续发的算一轮</small></span>
+            <div class="stepper">
+              <button type="button" data-step="-1">−</button><b id="keep-val">1</b><button type="button" data-step="1">＋</button>
+            </div>
+          </div>
+          <div class="row">
+            <span>Auto-clear after read<small>读完后倒计时焚毁</small></span>
+            <select id="ttl">
+              <option value="0">Off</option><option value="10">10s</option><option value="30">30s</option>
+              <option value="60">1 min</option><option value="300">5 min</option>
+            </select>
+          </div>
+          <div class="row">
+            <span>Media view time<small>图片查看 / 视频播完后多久焚毁</small></span>
+            <select id="mview">
+              <option value="5">5s</option><option value="10">10s</option><option value="30">30s</option><option value="60">1 min</option>
+            </select>
+          </div>
+          <div class="row" id="protect-row">
+            <span>Block screenshots<small>截图 / 录屏 / 共享屏幕时窗口为空白</small></span>
+            <input type="checkbox" id="protect-toggle" class="switch" />
+          </div>
+          <div class="row">
+            <span>Notifications<small>只提示「有新进展」，不含内容</small></span>
+            <input type="checkbox" id="notify-toggle" class="switch" />
+          </div>
+          <div class="row">
+            <span>Background task<small>顶部假装运行中的任务</small></span>
+            <input type="checkbox" id="runner-toggle" class="switch" />
+          </div>
+          <div class="row">
+            <span>Hide on blur<small>切走窗口时自动切到伪装页</small></span>
+            <input type="checkbox" id="blur-hide" class="switch" />
+          </div>
+          <div class="row">
+            <span>Workspace profile<small>伪装场景：历史记录、后台任务、伪装页按工种切换</small></span>
+            <select id="persona"></select>
+          </div>
+          <div class="row">
+            <span>Member labels<small>消息和侧栏里显示真名还是代号，只影响自己</small></span>
+            <div class="seg" id="label-seg"><button data-v="name">Name</button><button data-v="alias">Alias</button></div>
+          </div>
+          <div class="row">
+            <span>Sidebar names<small>双击侧栏任务名即可重命名（含私聊），清空恢复默认</small></span>
+            <button type="button" class="chip" id="recents-reset">Reset</button>
+          </div>
+          <div class="row">
+            <span>Theme</span>
+            <div class="seg" id="theme-seg"><button data-theme="warm">Warm</button><button data-theme="dark">Dark</button></div>
+          </div>
+          <div class="row">
+            <span>Fingerprint<small>双方一致 = 口令相同</small></span>
+            <code id="fp">----</code>
+          </div>
+          <div class="row">
+            <span>Server</span>
+            <code id="server-info">-</code>
+          </div>
+          <div class="row">
+            <span>Version<small id="build-time"></small></span>
+            <code id="app-ver">-</code>
+          </div>
+          <div class="pop-actions">
+            <button type="button" id="clear-btn" title="清空当前会话（双方一起）">Clear context</button>
+            <button type="button" id="leave-btn" class="danger">Leave</button>
+          </div>
+          <div class="keys"><kbd>Esc</kbd> 伪装页 · <kbd>/clear</kbd> <kbd>/keep 3</kbd> <kbd>/ttl 30</kbd> <kbd>/leave</kbd></div>
+        </div>
+        <div class="drop-hint"><div>Drop to attach<small>端到端加密 · 阅后即焚</small></div></div>
+        <div class="toast" id="toast" hidden></div>
+      </main>
+    </section>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

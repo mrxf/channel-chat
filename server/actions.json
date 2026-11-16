@@ -1,0 +1,13 @@
+{
+  "_说明": "预制动作。显示规则：接收方看到「{发送者}{prefix}你的{suffix}」，suffix 为空时显示「{发送者}{prefix}你」。修改后新连接立即生效，无需重启。",
+  "actions": [
+    { "prefix": "拍了拍", "suffix": "肩膀" },
+    { "prefix": "戳了戳", "suffix": "脸" },
+    { "prefix": "敲了敲", "suffix": "桌子" },
+    { "prefix": "拍了拍", "suffix": "电脑" },
+    { "prefix": "给", "suffix": "工位送了一杯咖啡" },
+    { "prefix": "朝", "suffix": "方向丢了个纸团" },
+    { "prefix": "向", "suffix": "屏幕挥了挥手" },
+    { "prefix": "抱了抱", "suffix": "" }
+  ]
+}

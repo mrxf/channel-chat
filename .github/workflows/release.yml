@@ -82,7 +82,14 @@ jobs:
           workspaces: src-tauri -> target
           key: ${{ matrix.name }}
 
-      - run: npm ci --no-audit --no-fund
+      # --ignore-scripts：跳过 postinstall（它只是给 server 目录装依赖，打客户端用不到）
+      # 失败时把 npm 报错写进 annotations，不登录也能在运行页面上看到原因
+      - name: Install
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund 2>&1 | tee npm.log
+          code=${PIPESTATUS[0]}
+          if [[ $code != 0 ]]; then grep -E "ERR|error" npm.log | head -15 | sed 's/^/::error::/'; exit $code; fi
 
       - name: Build
         run: npx tauri build ${{ matrix.args }}

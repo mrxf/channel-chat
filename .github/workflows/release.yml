@@ -1,4 +1,4 @@
-# 打包流水线：服务端 Docker 镜像 + macOS 客户端 + Windows 客户端，推送 v* tag 时自动创建 Release。
+# 打包流水线：服务端 Docker 镜像 + macOS / Windows 客户端 + Android 客户端，推送 v* tag 时自动创建 Release。
 #
 # 触发方式：
 #   - 推送 tag v1.2.3（`npm run release` 会自动做）：三端打包 → 推送镜像到 GHCR → 创建 GitHub Release
@@ -113,6 +113,15 @@ jobs:
           path: out/*
           if-no-files-found: error
 
+  # Android 打包逻辑在 android.yml（也可以单独手动运行）
+  android:
+    name: Android
+    needs: meta
+    uses: ./.github/workflows/android.yml
+    with:
+      version: ${{ needs.meta.outputs.version }}
+    secrets: inherit
+
   docker:
     name: Docker
     needs: meta
@@ -156,7 +165,7 @@ jobs:
 
   release:
     name: Release
-    needs: [meta, desktop, docker]
+    needs: [meta, desktop, android, docker]
     if: needs.meta.outputs.release == 'true'
     runs-on: ubuntu-latest
     env:
@@ -187,11 +196,14 @@ jobs:
           | macOS（Apple 芯片 + Intel） | \`Agent_${VERSION}_macOS_universal.dmg\` |
           | Windows 10/11 安装版 | \`Agent_${VERSION}_Windows_x64-setup.exe\` |
           | Windows 免安装版 | \`Agent_${VERSION}_Windows_x64_portable.exe\` |
+          | Android（绝大多数手机） | \`Agent_${VERSION}_Android_arm64.apk\` |
+          | Android（旧款 32 位手机） | \`Agent_${VERSION}_Android_armv7.apk\` |
           | 服务端（Node 18+） | \`channel-chat-server_${VERSION}.tar.gz\`，解压后 \`npm i && npm start\` |
 
           安装包没有签名：
           - **macOS**：第一次打开如果提示无法验证开发者，到「系统设置 → 隐私与安全性」点「仍要打开」，或者执行 \`xattr -cr /Applications/Agent.app\`。
           - **Windows**：SmartScreen 拦截时点「更多信息 → 仍要运行」。
+          - **Android**：安装时允许「安装未知来源应用」。手机端只连接已有服务器，不能自己开服务器。
 
           ## 服务端 Docker
 

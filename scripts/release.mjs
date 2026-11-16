@@ -22,7 +22,7 @@ if (branch !== 'main') fail(`当前在 ${branch} 分支，请切到 main 再发�
 
 if (arg !== 'current') {
   run('node', ['scripts/bump.mjs', arg]);
-  run('git', ['add', 'package.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock']);
+  run('git', ['add', 'package.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'mobile/pubspec.yaml', 'mobile/lib/core/version.dart']);
   run('git', ['commit', '-q', '-m', `release: v${version()}`]);
 }
 

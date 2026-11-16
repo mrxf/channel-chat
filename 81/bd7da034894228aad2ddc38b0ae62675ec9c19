@@ -1,0 +1,173 @@
+mobile/.gitignore
+  s_d204de4f582d8f::t_5e35be22016e95 1-45
+mobile/.metadata
+  s_d204de4f582d8f::t_e9433be2471614 1-33
+mobile/analysis_options.yaml
+  s_d204de4f582d8f::t_7c6cce2aeeabfd 1-28
+mobile/android/.gitignore
+  s_d204de4f582d8f::t_d44179cec01e92 1-14
+mobile/android/app/build.gradle.kts
+  s_d204de4f582d8f::t_5d180853f47b72 1-68
+mobile/android/app/src/debug/AndroidManifest.xml
+  s_d204de4f582d8f::t_fe7d8553bd1d21 1-7
+mobile/android/app/src/main/AndroidManifest.xml
+  s_d204de4f582d8f::t_72a36ca0b34db1 1-52
+mobile/android/app/src/main/kotlin/com/agentworkspace/agent_mobile/MainActivity.kt
+  s_d204de4f582d8f::t_24de14ffe41bf1 1-25
+mobile/android/app/src/main/res/drawable-v21/launch_background.xml
+  s_d204de4f582d8f::t_bdca33eac44e30 1-5
+mobile/android/app/src/main/res/drawable/ic_launcher_foreground.xml
+  s_d204de4f582d8f::t_de92082f4267ea 1-6
+mobile/android/app/src/main/res/drawable/ic_launcher_monochrome.xml
+  s_d204de4f582d8f::t_88b9c25ab53f4b 1-6
+mobile/android/app/src/main/res/drawable/ic_splash_star.xml
+  s_d204de4f582d8f::t_9dca1574e38dbb 1-4
+mobile/android/app/src/main/res/drawable/ic_stat_agent.xml
+  s_d204de4f582d8f::t_cec62d0f5926ae 1-4
+mobile/android/app/src/main/res/drawable/launch_background.xml
+  s_d204de4f582d8f::t_9f16bfb29a5ed6 1-5
+mobile/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+  s_d204de4f582d8f::t_613ab91a9ce53a 1-6
+mobile/android/app/src/main/res/values-night/colors.xml
+  s_d204de4f582d8f::t_5c367bc598d8b4 1-4
+mobile/android/app/src/main/res/values-night/styles.xml
+  s_d204de4f582d8f::t_5deeba827cd1bb 1-18
+mobile/android/app/src/main/res/values-v31/styles.xml
+  s_d204de4f582d8f::t_194b10a8aea147 1-11
+mobile/android/app/src/main/res/values/colors.xml
+  s_d204de4f582d8f::t_31e1148495ec29 1-5
+mobile/android/app/src/main/res/values/styles.xml
+  s_d204de4f582d8f::t_ea3c9d5a7999b1 1-18
+mobile/android/app/src/main/res/xml/data_extraction_rules.xml
+  s_d204de4f582d8f::t_6ef579c1a7300c 1-6
+mobile/android/app/src/profile/AndroidManifest.xml
+  s_d204de4f582d8f::t_d55c880f59f2ea 1-7
+mobile/android/build.gradle.kts
+  s_d204de4f582d8f::t_30cf5feb28f6e2 1-24
+mobile/android/gradle.properties
+  s_d204de4f582d8f::t_42868fb7851fd3 1-6
+mobile/android/gradle/wrapper/gradle-wrapper.properties
+  s_d204de4f582d8f::t_1573a1593677ed 1-5
+mobile/android/settings.gradle.kts
+  s_d204de4f582d8f::t_ca005b322e965d 1-26
+mobile/ios/.gitignore
+  s_d204de4f582d8f::t_cd6b13f4da69be 1-34
+mobile/ios/Flutter/AppFrameworkInfo.plist
+  s_d204de4f582d8f::t_c114b0d4ef3066 1-24
+mobile/ios/Flutter/Debug.xcconfig
+  s_d204de4f582d8f::t_a051ece6905863 1
+mobile/ios/Flutter/Release.xcconfig
+  s_d204de4f582d8f::t_b3cb889c755b23 1
+mobile/ios/Runner.xcodeproj/project.pbxproj
+  s_d204de4f582d8f::t_70ab8390136a83 1-644
+mobile/ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+  s_d204de4f582d8f::t_60fb7ec3dd133a 1-7
+mobile/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+  s_d204de4f582d8f::t_2813643bfc8c51 1-8
+mobile/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+  s_d204de4f582d8f::t_3afecc7f1d1a7d 1-8
+mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
+  s_d204de4f582d8f::t_13037ab12ecbee 1-119
+mobile/ios/Runner.xcworkspace/contents.xcworkspacedata
+  s_d204de4f582d8f::t_113e278d16ce4e 1-7
+mobile/ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+  s_d204de4f582d8f::t_7a7031aa05c2e3 1-8
+mobile/ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+  s_d204de4f582d8f::t_9fda841bb020eb 1-8
+mobile/ios/Runner/AppDelegate.swift
+  s_d204de4f582d8f::t_8f1990be5e4b8a 1-16
+mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
+  s_d204de4f582d8f::t_c783cd478785d3 1-122
+mobile/ios/Runner/Assets.xcassets/LaunchImage.imageset/Contents.json
+  s_d204de4f582d8f::t_5206d9b0d549d1 1-23
+mobile/ios/Runner/Assets.xcassets/LaunchImage.imageset/README.md
+  s_d204de4f582d8f::t_2d7fa50e4c74e4 1-5
+mobile/ios/Runner/Base.lproj/LaunchScreen.storyboard
+  s_d204de4f582d8f::t_1fdc71fb35e96f 1-37
+mobile/ios/Runner/Base.lproj/Main.storyboard
+  s_d204de4f582d8f::t_650ded4e67affe 1-26
+mobile/ios/Runner/Runner-Bridging-Header.h
+  s_d204de4f582d8f::t_8c8113b6179f1f 1
+mobile/ios/Runner/SceneDelegate.swift
+  s_d204de4f582d8f::t_6d5e373cda077d 1-6
+mobile/ios/RunnerTests/RunnerTests.swift
+  s_d204de4f582d8f::t_bfe21b2d63ccf2 1-12
+mobile/lib/chat/chat_controller.dart
+  s_d204de4f582d8f::t_e291c7883e98d4 1-1127
+mobile/lib/chat/models.dart
+  s_d204de4f582d8f::t_cdc4055c73485b 1-139
+mobile/lib/core/crypto.dart
+  s_d204de4f582d8f::t_29847e0289bdfb 1-191
+mobile/lib/core/media.dart
+  s_d204de4f582d8f::t_2c253ba128fdb3 1-229
+mobile/lib/core/native.dart
+  s_d204de4f582d8f::t_573db79c8355e9 1-81
+mobile/lib/core/net.dart
+  s_d204de4f582d8f::t_8f8831da46aed1 1-140
+mobile/lib/core/prefs.dart
+  s_d204de4f582d8f::t_e64cb5c9a780da 1-116
+mobile/lib/main.dart
+  s_d204de4f582d8f::t_3be5b55572e512 1-64
+mobile/lib/ui/chat_page.dart
+  s_d204de4f582d8f::t_1102a1aec5a79d 1-690
+mobile/lib/ui/drawer.dart
+  s_d204de4f582d8f::t_aa26c466c5dbcd 1-177
+mobile/lib/ui/login_page.dart
+  s_d204de4f582d8f::t_2557ef8d9565c9 1-452
+mobile/lib/ui/messages.dart
+  s_d204de4f582d8f::t_c3cc2ffbc1ebef 1-594
+mobile/lib/ui/settings_page.dart
+  s_d204de4f582d8f::t_34a2da62c5733c 1-260
+mobile/lib/ui/sheets.dart
+  s_d204de4f582d8f::t_42959d6872bc45 1-195
+mobile/lib/ui/theme.dart
+  s_d204de4f582d8f::t_54f6f223918469 1-198
+mobile/lib/ui/widgets.dart
+  s_d204de4f582d8f::t_fac61ec81bbe51 1-293
+mobile/test/crypto_test.dart
+  s_d204de4f582d8f::t_c856afba24b328 1-60
+mobile/test/vectors.json
+  s_d204de4f582d8f::t_0d6853d1d0422e 1-26
+mobile/tool/check_dart_vectors.mjs
+  s_d204de4f582d8f::t_d5482cacf34281 1-4
+mobile/tool/gen_vectors.mjs
+  s_d204de4f582d8f::t_2edf094afe4023 1-13
+.github/workflows/release.yml
+  s_d204de4f582d8f::t_2d57693a89563d 1,116-173,217,248-249,255
+README.md
+  s_d204de4f582d8f::t_dabc1c9cc9c128 3,10,140-143
+mobile/README.md
+  s_d204de4f582d8f::t_267c5e60f05343 1-70
+mobile/ios/Runner/Info.plist
+  s_d204de4f582d8f::t_8185ebf41f58e7 1-85
+mobile/lib/core/version.dart
+  s_d204de4f582d8f::t_5cbc6d78216d99 1-2
+mobile/pubspec.lock
+  s_d204de4f582d8f::t_3ebc5fbcb894b7 1-994
+mobile/pubspec.yaml
+  s_d204de4f582d8f::t_35cf71ce232cac 1-101
+mobile/test/interop_test.dart
+  s_d204de4f582d8f::t_fd9c653c15046a 1-115
+mobile/tool/peer.mjs
+  s_d204de4f582d8f::t_ba0201f618a65a 1-68
+scripts/bump.mjs
+  s_d204de4f582d8f::t_9902cd4af89006 2,7,14-15,41-49
+scripts/release.mjs
+  s_d204de4f582d8f::t_37390dd49fa336 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "81bd7da034894228aad2ddc38b0ae62675ec9c19",
+  "prompts": {},
+  "sessions": {
+    "s_d204de4f582d8f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9b5fe4a-ab54-4a98-b1f2-dbb037a869bd",
+        "model": "unknown"
+      },
+      "human_author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

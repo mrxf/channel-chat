@@ -1,0 +1,19 @@
+.github/workflows/release.yml
+  s_ca2b52fece431a::t_cb9c4a29b175c1 85-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "ff38072d57d992d649a327d027d9c8c578222a86",
+  "prompts": {},
+  "sessions": {
+    "s_ca2b52fece431a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "47a63cd0-8d69-48e0-831d-63e720fc76f8",
+        "model": "unknown"
+      },
+      "human_author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

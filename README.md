@@ -139,7 +139,7 @@ npm run release current    # 不改版本号，直接给当前版本打 tag
 
 ## 移动端
 
-`mobile/` 是 Flutter 写的 Android 客户端，和桌面端在同一个房间里互通（同一服务器 + 同一口令）：群聊、私聊、已读回执、阅后即焚、图片 / 视频、拍一拍、房间设置同步都支持。界面是普通的对话界面，没有桌面端的伪装；不能自己开服务器。开发和打包见 [mobile/README.md](mobile/README.md)，发布时 APK 会一起出现在 Release 里。
+`mobile/` 是 Flutter 写的 Android 客户端，和桌面端在同一个房间里互通（同一服务器 + 同一口令）：群聊、私聊、已读回执、阅后即焚、图片 / 视频、拍一拍、房间设置同步都支持。界面是普通的对话界面，没有桌面端的伪装；不能自己开服务器。开发和打包见 [mobile/README.md](mobile/README.md)。在 Actions 页面手动运行 **Android** 工作流即可打包，手机打开 [Android 测试版](https://github.com/mrxf/channel-chat/releases/tag/android-nightly) 直接下载；正式发版时 APK 会一起出现在 Release 里。
 
 ## 服务器配置
 

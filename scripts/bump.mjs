@@ -38,11 +38,12 @@ writeFileSync(cargoPath, cargo.replace(/^(\[package\][\s\S]*?^version\s*=\s*)"[^
 const lock = readFileSync(lockPath, 'utf8');
 writeFileSync(lockPath, lock.replace(/(\[\[package\]\]\nname = "agent"\nversion = )"[^"]*"/, `$1"${next}"`));
 
-// 移动端：pubspec 的 versionName 跟随，versionCode（+N）每次递增，安卓才能覆盖安装
+// 移动端：versionName 跟随；versionCode 由版本号推出（1.2.3 → 10203），本地和 CI 打的包一致，升级不会被系统当成降级
 if (existsSync(pubspecPath)) {
+  const [a, b, c] = next.split('.').map(Number);
+  const code = a * 10000 + b * 100 + c;
   const pub = readFileSync(pubspecPath, 'utf8');
-  const build = Number(/^version:\s*[\d.]+\+(\d+)/m.exec(pub)?.[1] || 0) + 1;
-  writeFileSync(pubspecPath, pub.replace(/^version:.*$/m, `version: ${next}+${build}`));
+  writeFileSync(pubspecPath, pub.replace(/^version:.*$/m, `version: ${next}+${code}`));
   const ver = readFileSync(mobileVerPath, 'utf8');
   writeFileSync(mobileVerPath, ver.replace(/appVersion = '[^']*'/, `appVersion = '${next}'`));
 }

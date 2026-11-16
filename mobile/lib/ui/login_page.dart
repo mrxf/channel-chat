@@ -221,7 +221,8 @@ class _LoginPageState extends State<LoginPage> {
     if (pass.length < 4) return setState(() => _error = '口令至少 4 位');
 
     setState(() => _phase = _Phase.deriving);
-    if (prefs.notify) Native.requestNotifyPermission();
+    // 新消息通知和后台保持在线的常驻通知都需要通知权限（Android 13+）
+    if (prefs.notify || prefs.keepAlive) Native.requestNotifyPermission();
     // scrypt 在后台 isolate 里跑；派生完成后才开始连接
     final sub = widget.chat.addListener;
     void onChat() {

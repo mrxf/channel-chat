@@ -27,6 +27,8 @@ const _maxSkew = Duration(minutes: 10);
 const _tick = 250;
 const _actionTtl = 20;
 const _maxActionLen = 200;
+const _pingNormal = Duration(seconds: 15);
+const _pingProbe = Duration(milliseconds: 1000);
 final _cidRe = RegExp(r'^[a-f0-9]{16}$');
 final _thumbRe = RegExp(r'^data:image/jpeg;base64,[A-Za-z0-9+/=]+$');
 
@@ -35,6 +37,8 @@ enum ConnState { idle, connecting, online, reconnecting }
 class ChatController extends ChangeNotifier with WidgetsBindingObserver {
   ChatController(this.prefs) {
     WidgetsBinding.instance.addObserver(this);
+    prefs.addListener(_syncKeepAlive);
+    _netSub = Native.networkChanges.listen((_) => _onNetworkChanged());
   }
 
   final Prefs prefs;
@@ -70,12 +74,16 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
   int _retry = 0;
   int _gen = 0;
   Timer? _reconnectTimer;
+  Timer? _probeTimer;
+  Timer? _netDebounce;
   Timer? _ticker;
   Timer? _mediaWatch;
+  StreamSubscription<void>? _netSub;
   Completer<void>? _joined;
   DateTime _lastAction = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
   bool _foreground = true;
+  String? _keepAliveText; // 当前常驻通知的文字，null = 服务没在运行
 
   final _toasts = StreamController<String>.broadcast();
   final _nudges = StreamController<void>.broadcast();
@@ -107,8 +115,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
       rethrow;
     }
     entered = true;
-    _ticker = Timer.periodic(const Duration(milliseconds: _tick), (_) => _readTick());
-    _mediaWatch = Timer.periodic(const Duration(seconds: 5), (_) => _checkStalled());
+    _startTicker();
     notifyListeners();
   }
 
@@ -117,8 +124,11 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     _burnAll();
     _gen++;
     _reconnectTimer?.cancel();
+    _probeTimer?.cancel();
+    _netDebounce?.cancel();
     _ticker?.cancel();
-    _mediaWatch?.cancel();
+    _ticker = null;
+    _stopMediaWatch();
     session?.destroy();
     session = null;
     _ws = null;
@@ -139,24 +149,106 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  // 已读计时只在前台有意义；后台停掉，锁屏时不必每 250ms 唤醒一次
+  void _startTicker() {
+    _ticker?.cancel();
+    _ticker = Timer.periodic(const Duration(milliseconds: _tick), (_) => _readTick());
+  }
+
+  // 分块超时检查只在有未收完的附件时才开启，空闲后台不产生任何额外唤醒
+  void _startMediaWatch() {
+    _mediaWatch ??= Timer.periodic(const Duration(seconds: 5), (_) => _checkStalled());
+  }
+
+  void _stopMediaWatch() {
+    _mediaWatch?.cancel();
+    _mediaWatch = null;
+  }
+
+  /// 后台保持在线：进入会话后启动 Android 前台服务，常驻通知显示连接状态；退出会话或关闭开关时停止。
+  /// 没有它，App 切到后台或锁屏后进程会被系统冻结，回不了心跳，服务器随即断开连接（见 KeepAliveService.kt）
+  void _syncKeepAlive() {
+    final text = !entered || session == null || !prefs.keepAlive
+        ? null
+        : conn == ConnState.online
+            ? '会话进行中，切到后台也能收到消息'
+            : '连接中断，正在重连…';
+    if (text == _keepAliveText) return;
+    _keepAliveText = text;
+    Native.keepAlive(text).then((ok) {
+      if (!ok && _keepAliveText == text) _keepAliveText = null; // 没启动成功（比如在后台），下次状态变化再试
+    });
+  }
+
+  @override
+  void notifyListeners() {
+    _syncKeepAlive();
+    super.notifyListeners();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
-    if (_foreground) {
+    if (!_foreground) {
+      _ticker?.cancel();
+      _ticker = null;
+    } else {
+      if (entered && _ticker == null) _startTicker();
       Native.clearNotifications();
-      // 回到前台时连接已断开：立即重连，不等退避
-      if (entered && session != null && (_ws == null || _ws!.closeCode != null)) {
-        _retry = 0;
+      _recoverConnection();
+    }
+    notifyListeners();
+  }
+
+  /// 系统默认网络切换（比如锁屏走出门 Wi-Fi 切 5G、恢复信号）：稍等路由表稳定后立即重连或快速探活
+  void _onNetworkChanged() {
+    if (!entered || session == null) return;
+    _netDebounce?.cancel();
+    _netDebounce = Timer(const Duration(milliseconds: 150), () => _recoverConnection(force: true));
+  }
+
+  /// 恢复连接：
+  ///   1. 连接已断（包括服务器 terminate 导致无 closeCode 的异常断开）：取消慢速退避，立即重连；
+  ///   2. 表面仍在线（国产系统墓碑解冻、切网后常见的 TCP 半开假死）：收紧一次 WebSocket Ping 立即探活，2 秒内自动识破假在线。
+  void _recoverConnection({bool force = false}) {
+    if (!entered || session == null) return;
+    final ws = _ws;
+    if (ws == null || ws.readyState != WebSocket.open) {
+      _retry = 0;
+      if (force || (_reconnectTimer?.isActive ?? false) || conn == ConnState.online) {
         _reconnectTimer?.cancel();
         _open(first: false).catchError((_) {});
       }
+      return;
     }
-    notifyListeners();
+    _retry = 0;
+    _probeWs(ws);
+  }
+
+  void _probeWs(WebSocket ws) {
+    _probeTimer?.cancel();
+    try {
+      ws.pingInterval = _pingProbe;
+    } catch (_) {
+      return;
+    }
+    // 1s 后发 PING、再等 1s 无 PONG 即自动关闭触发 _onClosed；若连接健康，2.5s 后恢复常规 15s 心跳
+    _probeTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (_ws == ws && ws.readyState == WebSocket.open) {
+        try {
+          ws.pingInterval = _pingNormal;
+        } catch (_) {}
+      }
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    prefs.removeListener(_syncKeepAlive);
+    _netSub?.cancel();
+    _netDebounce?.cancel();
+    _probeTimer?.cancel();
     leave();
     super.dispose();
   }
@@ -167,6 +259,11 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _open({required bool first}) async {
     final gen = ++_gen;
+    _reconnectTimer?.cancel();
+    _probeTimer?.cancel();
+    final prev = _ws;
+    _ws = null;
+    prev?.close().catchError((_) {});
     conn = first ? ConnState.connecting : ConnState.reconnecting;
     notifyListeners();
     WebSocket ws;
@@ -174,14 +271,14 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
       ws = await WebSocket.connect(wsUrl.toString()).timeout(const Duration(seconds: 6));
     } catch (_) {
       if (first) throw Exception('无法连接服务器');
-      if (gen == _gen) _scheduleReconnect();
+      if (gen == _gen && entered && session != null) _scheduleReconnect();
       return;
     }
     if (gen != _gen || session == null) {
-      ws.close();
+      ws.close().catchError((_) {});
       return;
     }
-    ws.pingInterval = const Duration(seconds: 15); // 检测半开连接（手机休眠后常见）
+    ws.pingInterval = _pingNormal; // 检测半开连接（手机休眠后常见）
     _ws = ws;
     final joined = _joined = Completer<void>();
     ws.listen(
@@ -194,16 +291,22 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
       await joined.future.timeout(const Duration(seconds: 6));
     } catch (_) {
       if (first) {
-        ws.close();
+        _ws = null;
+        ws.close().catchError((_) {});
         throw Exception('连接超时，请检查服务器地址');
       }
-      ws.close();
+      if (_ws == ws) {
+        _ws = null;
+        ws.close().catchError((_) {});
+        if (gen == _gen && entered && session != null) _scheduleReconnect();
+      }
     }
   }
 
   void _scheduleReconnect() {
     _reconnectTimer?.cancel();
-    final delay = min(8000, 500 * pow(2, _retry++).toInt());
+    // 前台最多隔 8 秒重试一次；后台放宽到 30 秒，服务器长时间不在时少耗电（回到前台会立即重连）
+    final delay = min(_foreground ? 8000 : 30000, 500 * pow(2, min(_retry++, 10)).toInt());
     _reconnectTimer = Timer(Duration(milliseconds: delay), () {
       if (session != null) _open(first: false).catchError((_) {});
     });
@@ -211,6 +314,8 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
 
   void _onClosed(WebSocket ws) {
     if (_ws != ws || session == null || !entered) return;
+    _ws = null;
+    _probeTimer?.cancel();
     conn = ConnState.reconnecting;
     _markAllOffline();
     _scheduleReconnect();
@@ -911,6 +1016,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
       ..lastAt = DateTime.now();
     _addItem(it);
     _incoming[it.id] = it;
+    _startMediaWatch();
   }
 
   void _onChunk(Uint8List frame) {
@@ -923,6 +1029,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     it.lastAt = DateTime.now();
     if (it.got == it.chunks) {
       _incoming.remove(h.id);
+      if (_incoming.isEmpty) _stopMediaWatch();
       it.status = MediaStatus.ready;
       _replyTo(it, {'t': 'mrecv', 'id': it.id});
       notifyListeners();
@@ -946,6 +1053,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
         notifyListeners();
       }
     }
+    if (_incoming.isEmpty) _stopMediaWatch();
   }
 
   /// 发送前检查；返回 null 表示可以发送
@@ -1102,6 +1210,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     it.countdown?.cancel();
     it.capTimer?.cancel();
     _incoming.remove(it.id);
+    if (_incoming.isEmpty) _stopMediaWatch();
     for (final f in it.frames ?? <Uint8List?>[]) {
       f?.fillRange(0, f.length, 0);
     }

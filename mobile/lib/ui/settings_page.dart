@@ -1,4 +1,5 @@
 // 设置：会话设置（全房间同步）+ 本机偏好 + 安全信息
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -45,6 +46,8 @@ class SettingsPage extends StatelessWidget {
                 below: _Segments<int>(values: mviewOptions, selected: cfg.mview, label: (v) => '${v}s', onChanged: (v) => chat.setCfg(mview: v)),
               ),
             ]),
+            const _Section('后台'),
+            _BackgroundCard(prefs: prefs),
             const _Section('本机'),
             _Card(children: [
               _Row(
@@ -125,6 +128,93 @@ class SettingsPage extends StatelessWidget {
         },
       ),
     );
+  }
+}
+
+/// 后台保持在线开关 + 系统后台限制的状态（回到这个页面时重新检测，用户可能刚从系统设置回来）
+class _BackgroundCard extends StatefulWidget {
+  const _BackgroundCard({required this.prefs});
+  final Prefs prefs;
+  @override
+  State<_BackgroundCard> createState() => _BackgroundCardState();
+}
+
+class _BackgroundCardState extends State<_BackgroundCard> with WidgetsBindingObserver {
+  bool? _exempt;
+  String _rom = 'other';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _check();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _check();
+  }
+
+  Future<void> _check() async {
+    final results = await (Native.batteryExempt(), Native.romFamily()).wait;
+    if (!mounted) return;
+    setState(() {
+      _exempt = results.$1;
+      _rom = results.$2;
+    });
+  }
+
+  String _romGuide() => switch (_rom) {
+        'xiaomi' => '澎湃 / MIUI：请将省电策略设为「无限制」，并在最近任务里下拉锁定 Agent',
+        'huawei' => '鸿蒙 / EMUI：请关闭「自动管理」并开启「允许后台活动」，并在最近任务里锁定 Agent',
+        'honor' => 'MagicOS：请关闭「自动管理」并开启「允许后台活动」，并在最近任务里锁定 Agent',
+        'oppo' => 'ColorOS：请在耗电管理里开启「完全允许后台行为」，并在最近任务里锁定 Agent',
+        'vivo' => 'OriginOS：请开启「允许后台高耗电」，并在最近任务里锁定 Agent',
+        'meizu' => 'Flyme：请开启「允许后台运行」，并在最近任务里锁定 Agent',
+        _ => '部分系统还要在应用设置里允许「后台活动」，并在最近任务里锁定 Agent',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    final prefs = widget.prefs;
+    return _Card(children: [
+      _Row(
+        title: '后台保持在线',
+        subtitle: '切到后台、锁屏后连接不断，照常收消息和通知。通知栏会常驻一条提示，耗电会多一些',
+        trailing: Switch(
+          value: prefs.keepAlive,
+          onChanged: (v) {
+            prefs.setKeepAlive(v);
+            if (v) Native.requestNotifyPermission();
+          },
+        ),
+      ),
+      if (prefs.keepAlive && defaultTargetPlatform == TargetPlatform.android) ...[
+        _Row(
+          title: '不受电池优化限制',
+          subtitle: _exempt == false ? '未允许：长时间锁屏后，系统仍可能断开连接' : '已允许',
+          trailing: _exempt == false
+              ? FilledButton.tonal(
+                  onPressed: Native.requestBatteryExempt,
+                  style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+                  child: const Text('去允许'),
+                )
+              : Icon(Icons.check_circle_rounded, color: _exempt == true ? p.good : p.muted, size: 22),
+        ),
+        _Row(
+          title: '系统后台管理',
+          subtitle: _romGuide(),
+          trailing: TextButton(onPressed: Native.openBackgroundSettings, child: const Text('打开')),
+        ),
+      ],
+    ]);
   }
 }
 

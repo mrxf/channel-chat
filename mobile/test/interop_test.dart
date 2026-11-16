@@ -10,6 +10,7 @@ import 'package:agent_mobile/chat/models.dart';
 import 'package:agent_mobile/core/media.dart';
 import 'package:agent_mobile/core/prefs.dart';
 import 'package:crypto/crypto.dart' as hash;
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart' hide group;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -107,6 +108,24 @@ void main() {
     // 对端离开 → 成员离线
     peer.kill();
     await waitFor(() => chat.onlineMembers.isEmpty, 'peer left');
+
+    // 前后台切换快速 Ping 探活：正常连接不被误断，且 2.5s 后恢复常规心跳
+    chat.didChangeAppLifecycleState(AppLifecycleState.paused);
+    chat.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await Future<void>.delayed(const Duration(milliseconds: 2600));
+    expect(chat.conn, ConnState.online);
+
+    // 后台期间服务器强制断开（无 closeCode）并进入退避等待 → 回到前台应取消退避并立即重连
+    chat.didChangeAppLifecycleState(AppLifecycleState.paused);
+    server.kill();
+    await server.exitCode;
+    await waitFor(() => chat.conn == ConnState.reconnecting, 'disconnected in background');
+    await Future<void>.delayed(const Duration(milliseconds: 1800)); // 让前两次重试失败，进入数秒退避期
+    server = await Process.start('node', ['../server/index.js', '--port', '$port', '--no-discovery', '--quiet']);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    expect(chat.conn, ConnState.reconnecting);
+    chat.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await waitFor(() => chat.conn == ConnState.online, 'instant reconnect on resume', timeout: const Duration(milliseconds: 1000));
 
     chat.leave();
     expect(chat.items, isEmpty);

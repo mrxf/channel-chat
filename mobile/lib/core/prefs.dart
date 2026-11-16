@@ -46,6 +46,8 @@ class Prefs extends ChangeNotifier {
   bool get notify => _sp.getBool('notify') ?? true;
   bool get protect => _sp.getBool('protect') ?? true;
   bool get haptics => _sp.getBool('haptics') ?? true;
+  bool get keepAlive => _sp.getBool('keepAlive') ?? true;
+  bool get batteryAsked => _sp.getBool('batteryAsked') ?? false;
   ThemeMode get themeMode => ThemeMode.values.firstWhere((m) => m.name == _sp.getString('theme'), orElse: () => ThemeMode.system);
 
   List<ActionDef> get customActions {
@@ -83,6 +85,13 @@ class Prefs extends ChangeNotifier {
     await _sp.setBool('protect', v);
     notifyListeners();
   }
+
+  Future<void> setKeepAlive(bool v) async {
+    await _sp.setBool('keepAlive', v);
+    notifyListeners();
+  }
+
+  Future<void> setBatteryAsked() => _sp.setBool('batteryAsked', true);
 
   Future<void> setHaptics(bool v) async {
     await _sp.setBool('haptics', v);

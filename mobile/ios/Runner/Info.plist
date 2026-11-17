@@ -22,7 +22,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>选择图片或视频发送给对方</string>
 	<key>CFBundleDisplayName</key>
-	<string>Agent</string>
+	<string>ChatBuddy</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

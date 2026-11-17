@@ -32,7 +32,7 @@ fn set_unread(app: AppHandle, count: u32) {
         #[cfg(target_os = "macos")]
         let _ = tray.set_title(title);
         #[cfg(not(target_os = "macos"))]
-        let _ = tray.set_tooltip(Some(title.map_or("Agent".into(), |n| format!("Agent ({n})"))));
+        let _ = tray.set_tooltip(Some(title.map_or("ChatBuddy".into(), |n| format!("ChatBuddy ({n})"))));
     }
 }
 
@@ -78,8 +78,8 @@ pub fn run() {
             prefs::prefs_save,
         ])
         .setup(|app| {
-            let show = MenuItem::with_id(app, "show", "Open Agent", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, Some("CmdOrCtrl+Q"))?;
+            let show = MenuItem::with_id(app, "show", "打开 ChatBuddy", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "退出 ChatBuddy", true, Some("CmdOrCtrl+Q"))?;
             let menu = Menu::with_items(app, &[&show, &PredefinedMenuItem::separator(app)?, &quit])?;
             // macOS 菜单栏用单色模板图标（自动适配深浅色）；Windows 任务栏用彩色应用图标
             #[cfg(target_os = "macos")]
@@ -89,7 +89,7 @@ pub fn run() {
             TrayIconBuilder::with_id(TRAY_ID)
                 .icon(icon)
                 .icon_as_template(true)
-                .tooltip("Agent")
+                .tooltip("ChatBuddy")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, e| match e.id().as_ref() {

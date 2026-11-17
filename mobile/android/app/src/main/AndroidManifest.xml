@@ -14,7 +14,7 @@
 
     <!-- usesCleartextTraffic：局域网服务器是 ws:// / http://（内容本身端到端加密） -->
     <application
-        android:label="Agent"
+        android:label="ChatBuddy"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"

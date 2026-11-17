@@ -129,7 +129,7 @@ fn is_allowed_github_url(url: &str) -> bool {
 #[cfg(target_os = "macos")]
 fn find_macos_app_bundle() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
-    // 期望路径形如 .../Agent.app/Contents/MacOS/agent
+    // 期望路径形如 .../ChatBuddy.app/Contents/MacOS/agent
     let macos_dir = exe.parent()?;
     let contents_dir = macos_dir.parent()?;
     let bundle_dir = contents_dir.parent()?;
@@ -559,7 +559,7 @@ fn stage_platform_install(
     work_dir: &Path,
 ) -> Result<(RestartPlan, bool), String> {
     let app_bundle = find_macos_app_bundle()
-        .ok_or_else(|| "当前为开发模式运行，请打包成 Agent.app 后使用自动更新".to_string())?;
+        .ok_or_else(|| "当前为开发模式运行，请打包成 ChatBuddy.app 后使用自动更新".to_string())?;
     let parent_dir = app_bundle
         .parent()
         .ok_or_else(|| "无法定位应用所在目录".to_string())?;
@@ -601,7 +601,7 @@ fn stage_platform_install(
         .find(|p| p.extension().and_then(|x| x.to_str()) == Some("app"))
         .ok_or_else(|| "DMG 中未找到 .app 应用包".to_string())?;
 
-    let extracted_app = work_dir.join("Agent.new.app");
+    let extracted_app = work_dir.join("ChatBuddy.new.app");
     let ditto = Command::new("/usr/bin/ditto")
         .arg(&mounted_app)
         .arg(&extracted_app)
@@ -621,7 +621,7 @@ fn stage_platform_install(
     let _ = fs::remove_file(dmg_path);
 
     // 优先在应用同目录做同分区原子替换；若无写权限则通过系统授权完成替换
-    let staging_same_fs = parent_dir.join(format!(".Agent.upd-{}.app", std::process::id()));
+    let staging_same_fs = parent_dir.join(format!(".ChatBuddy.upd-{}.app", std::process::id()));
     let copy_same_fs = Command::new("/usr/bin/ditto")
         .arg(&extracted_app)
         .arg(&staging_same_fs)
@@ -632,7 +632,7 @@ fn stage_platform_install(
             .args(["-cr"])
             .arg(&staging_same_fs)
             .status();
-        let backup = parent_dir.join(format!(".Agent.bak-{}.app", std::process::id()));
+        let backup = parent_dir.join(format!(".ChatBuddy.bak-{}.app", std::process::id()));
         let _ = fs::remove_dir_all(&backup);
         if let Err(e) = fs::rename(&app_bundle, &backup) {
             let _ = fs::remove_dir_all(&staging_same_fs);

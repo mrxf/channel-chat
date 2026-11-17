@@ -5,93 +5,154 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="no-referrer" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23d97757'/%3E%3Cpath d='M16 7l2.2 6.8L25 16l-6.8 2.2L16 25l-2.2-6.8L7 16l6.8-2.2z' fill='white'/%3E%3C/svg%3E" />
-    <title>Agent</title>
+    <title>ChatBuddy</title>
   </head>
   <body>
-    <!-- 登录（伪装成 workspace 登录） -->
+    <!-- 登录（伪装成 ChatBuddy 工作区登录 + 清晰的局域网连接向导） -->
     <section id="join" class="join" data-tauri-drag-region>
       <form id="join-form" class="join-card" autocomplete="off" novalidate>
-        <div class="brand-mark lg"></div>
-        <h1>Welcome back</h1>
-        <p class="muted">Open a workspace session to continue.</p>
+        <div class="join-head">
+          <div class="brand-mark lg"></div>
+          <div class="lang-seg" id="join-lang-seg">
+            <button type="button" data-lang="zh" class="on">中文</button>
+            <button type="button" data-lang="en">EN</button>
+          </div>
+        </div>
+        <h1 data-i18n="join.title">欢迎使用 ChatBuddy</h1>
+        <p class="muted" data-i18n="join.subtitle">打开加密工作区会话以继续。</p>
 
-        <label>Server
-          <div class="pw srv">
-            <input id="server" list="server-list" placeholder="192.168.1.5:10686" spellcheck="false" />
-            <div class="srv-btns" id="srv-btns" hidden>
-              <button type="button" id="srv-host" class="pw-btn gen" title="在本机启动局域网服务器，其他人打开客户端即可自动发现">Host</button>
-              <button type="button" id="srv-scan" class="pw-btn gen" title="在局域网里查找服务器">Scan</button>
+        <!-- 独立的局域网房间与扫描连接模块（桌面端自动展示，外行也能一眼看懂） -->
+        <div class="lan-guide" id="lan-guide" hidden>
+          <div class="lan-guide-head">
+            <span data-i18n="join.netTitle">怎么连接服务器？</span>
+            <small class="lan-badge" data-i18n="join.netBadge">同一 Wi-Fi 零配置</small>
+          </div>
+
+          <div class="lan-grid">
+            <!-- 选项 1：本机建房间（原 Host） -->
+            <div class="lan-card" id="lan-host-card">
+              <div id="lan-host-idle" class="lan-card-body">
+                <div class="lan-card-top">
+                  <span class="lan-ico host">⌂</span>
+                  <div class="lan-card-text">
+                    <b data-i18n="join.hostTitle">用我的电脑建房间</b>
+                    <small data-i18n="join.hostSub">无需任何配置，把本机变成局域网服务器，其他人打开即可连上</small>
+                  </div>
+                </div>
+                <button type="button" id="srv-host" class="lan-btn primary-soft" data-i18n="join.hostBtn">开启本机房间</button>
+              </div>
+
+              <div id="lan-host-running" class="lan-card-body running" hidden>
+                <div class="lan-card-top">
+                  <span class="lan-ico on">●</span>
+                  <div class="lan-card-text">
+                    <b data-i18n="join.hostRunningTitle">本机房间已开启</b>
+                    <small data-i18n="join.hostRunningSub">同 Wi-Fi 的人打开软件会自动发现，也可以复制地址发给对方：</small>
+                  </div>
+                </div>
+                <div class="lan-addr-bar">
+                  <code id="lan-share-addr">127.0.0.1:10686</code>
+                  <button type="button" id="srv-host-copy" class="lan-mini-btn" data-i18n="join.hostCopyBtn">复制地址</button>
+                  <button type="button" id="srv-host-stop" class="lan-mini-btn danger" data-i18n="join.hostStopBtn">关闭房间</button>
+                </div>
+              </div>
             </div>
+
+            <!-- 选项 2：扫描局域网（原 Scan） -->
+            <div class="lan-card" id="lan-scan-card">
+              <div class="lan-card-body">
+                <div class="lan-card-top">
+                  <span class="lan-ico scan">◎</span>
+                  <div class="lan-card-text">
+                    <b data-i18n="join.scanTitle">搜索局域网房间</b>
+                    <small data-i18n="join.scanSub">自动查找同一个 Wi-Fi / 局域网里别人已经开启的服务器</small>
+                  </div>
+                </div>
+                <button type="button" id="srv-scan" class="lan-btn" data-i18n="join.scanBtn">扫描查找</button>
+              </div>
+            </div>
+          </div>
+
+          <p class="lan-manual-note" data-i18n="join.manualHint">如果是远程/云服务器，直接在下方输入框粘贴对方给你的地址即可：</p>
+        </div>
+
+        <label>
+          <span data-i18n="join.serverInputLabel">服务器地址</span>
+          <div class="pw srv">
+            <input id="server" list="server-list" data-i18n-placeholder="join.serverPlaceholder" placeholder="例如 192.168.1.5:10686（同一 Wi-Fi 可点下方扫描）" spellcheck="false" />
           </div>
           <datalist id="server-list"></datalist>
           <span class="field-hint" id="server-hint">&nbsp;</span>
         </label>
 
-        <label>Display name
-          <input id="name" maxlength="24" placeholder="e.g. dev-mac" spellcheck="false" />
+        <label>
+          <span data-i18n="join.nameLabel">显示昵称</span>
+          <input id="name" maxlength="24" data-i18n-placeholder="join.namePlaceholder" placeholder="例如 小王 / dev-mac" spellcheck="false" />
         </label>
 
-        <label>Session key
+        <label>
+          <span data-i18n="join.keyLabel">会话口令（房间暗号）</span>
           <div class="pw">
-            <input id="pass" type="password" placeholder="Shared secret" spellcheck="false" />
-            <button type="button" id="pw-toggle" class="pw-btn" title="显示 / 隐藏">
+            <input id="pass" type="password" data-i18n-placeholder="join.keyPlaceholder" placeholder="输入双方约定的加密口令" spellcheck="false" />
+            <button type="button" id="pw-toggle" class="pw-btn" data-i18n-title="join.keyToggleTitle" title="显示 / 隐藏口令">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
-            <button type="button" id="pw-gen" class="pw-btn gen" title="生成随机口令并复制">Generate</button>
+            <button type="button" id="pw-gen" class="pw-btn gen" data-i18n="join.keyGen" data-i18n-title="join.keyGenTitle" title="生成高强度随机口令并自动复制">随机生成</button>
           </div>
           <span class="field-hint" id="pass-hint">&nbsp;</span>
         </label>
+
         <label class="remember" id="remember-row" hidden>
           <input type="checkbox" id="remember-key" />
-          <span>Remember on this Mac</span>
-          <small>口令加密保存在本机，只能在这台 Mac 上解开</small>
+          <span id="remember-title">在这台 Mac 上记住口令</span>
+          <small id="remember-sub">口令加密保存在本机，只能在这台 Mac 上解开</small>
         </label>
 
-        <button id="join-btn" class="primary" type="submit">Continue</button>
+        <button id="join-btn" class="primary" type="submit" data-i18n="join.submit">进入会话</button>
         <p class="form-error" id="join-error" hidden></p>
         <button type="button" class="join-upd" id="join-upd" hidden></button>
         <span class="join-ver" id="join-ver"></span>
-        <p class="hint">Key is stretched locally (scrypt) and never leaves this device.<br />Messages are end-to-end encrypted (XChaCha20-Poly1305).</p>
+        <p class="hint" data-i18n-html="join.footHint">口令在本地经 scrypt 拉伸，绝不离开本机。<br />所有消息均采用端到端加密（XChaCha20-Poly1305），阅后即焚。</p>
       </form>
     </section>
 
-    <!-- 主界面（伪装成 Agent 工作台） -->
+    <!-- 主界面（伪装成 ChatBuddy 智能对话工作台） -->
     <section id="main" class="main" hidden>
       <aside class="sidebar">
         <div class="side-top" data-tauri-drag-region>
-          <div class="brand" data-tauri-drag-region><span class="brand-mark"></span><b>Agent</b></div>
-          <button class="icon ghost" id="collapse" title="Toggle sidebar">
+          <div class="brand" data-tauri-drag-region><span class="brand-mark"></span><b>ChatBuddy</b></div>
+          <button class="icon ghost" id="collapse" data-i18n-title="side.toggle" title="收起 / 展开侧边栏">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
           </button>
         </div>
-        <button class="new-task" id="new-task"><span>＋</span> New task</button>
+        <button class="new-task" id="new-task"><span>＋</span> <em class="plain-em" data-i18n="side.newTask">新建对话</em></button>
         <nav class="side-nav">
-          <div class="nav-item">⌕ Search</div>
-          <div class="nav-item">◫ Projects</div>
-          <div class="nav-item">⚙ Automations</div>
+          <div class="nav-item">⌕ <span data-i18n="side.search">搜索记录</span></div>
+          <div class="nav-item">◫ <span data-i18n="side.projects">项目空间</span></div>
+          <div class="nav-item">⚙ <span data-i18n="side.automations">自动化工作流</span></div>
         </nav>
-        <div class="recents-title">Recents</div>
+        <div class="recents-title" data-i18n="side.recents">最近对话</div>
         <ul class="recents" id="recents"></ul>
         <div class="side-foot">
           <div class="avatar" id="avatar">D</div>
           <div class="who">
             <div id="me-name">dev</div>
-            <div class="status"><i id="dot"></i><span id="status">Connecting…</span></div>
+            <div class="status"><i id="dot"></i><span id="status" data-i18n="side.connecting">正在连接…</span></div>
           </div>
         </div>
       </aside>
 
       <main class="chat" id="chat">
         <header class="topbar" data-tauri-drag-region>
-          <button class="icon ghost expand-side" id="expand" title="Show sidebar">
+          <button class="icon ghost expand-side" id="expand" data-i18n-title="top.expand" title="展开侧边栏">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
           </button>
-          <div class="title" id="title" data-tauri-drag-region>Session</div>
+          <div class="title" id="title" data-tauri-drag-region data-i18n="top.session">工作区会话</div>
           <div class="conv-tag" id="conv-tag" hidden></div>
           <div class="spacer" data-tauri-drag-region></div>
-          <button class="chip upd-chip" id="upd-chip" hidden title="发现新版本，点击查看并更新"></button>
-          <button class="chip ghost" id="share-btn" title="复制服务器地址（不含口令）">Share</button>
-          <button class="icon ghost" id="settings-btn" title="Settings">⋯</button>
+          <button class="chip upd-chip" id="upd-chip" hidden data-i18n-title="top.updTitle" title="发现新版本，点击查看并更新"></button>
+          <button class="chip ghost" id="share-btn" data-i18n="top.share" data-i18n-title="top.shareTitle" title="复制服务器连接地址（不含口令）">分享地址</button>
+          <button class="icon ghost" id="settings-btn" data-i18n-title="top.settingsTitle" title="会话与伪装设置">⋯</button>
         </header>
 
         <div class="runner-wrap" id="runner-wrap"><div class="runner" id="runner"></div></div>
@@ -103,122 +164,139 @@
 
         <footer class="composer-wrap">
           <form class="composer" id="composer">
-            <textarea id="input" rows="1" maxlength="4000" placeholder="Reply to Agent…"></textarea>
+            <textarea id="input" rows="1" maxlength="4000" data-i18n-placeholder="composer.placeholder" placeholder="给 ChatBuddy 发送消息…（Enter 发送，Shift+Enter 换行）"></textarea>
             <div class="composer-row">
-              <button type="button" class="icon ghost" id="act-btn" title="动作（拍一拍）">＋</button>
-              <button type="button" class="icon ghost" id="attach-btn" title="发送图片 / 视频（阅后即焚）">
+              <button type="button" class="icon ghost" id="act-btn" data-i18n-title="composer.actTitle" title="快捷动作（拍一拍）">＋</button>
+              <button type="button" class="icon ghost" id="attach-btn" data-i18n-title="composer.attachTitle" title="发送图片 / 视频（端到端加密 · 阅后即焚）">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l8-8"/></svg>
               </button>
-              <button type="button" class="icon ghost wipe-btn empty" id="wipe-btn" title="清屏：隐藏当前屏幕所有消息（仅本地）" aria-label="Clear screen">
+              <button type="button" class="icon ghost wipe-btn empty" id="wipe-btn" title="清屏" aria-label="Clear screen">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
               </button>
               <input type="file" id="file-input" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.m4v,.mov,.webm" multiple hidden />
-              <span class="chip soft" id="ctx-chip">Context 1</span>
+              <span class="chip soft" id="ctx-chip">保留 1 轮</span>
               <div class="spacer"></div>
-              <span class="model">Agent 5 · High</span>
-              <button class="send" id="send" type="submit" aria-label="Send">↑</button>
+              <button type="button" class="model-btn" id="model-btn" title="切换对话模型"></button>
+              <button class="send" id="send" type="submit" data-i18n-aria="composer.sendAria" aria-label="发送">↑</button>
             </div>
           </form>
-          <p class="disclaimer">Agent can make mistakes. Please double-check responses.</p>
+          <p class="disclaimer" data-i18n="composer.disclaimer">ChatBuddy 可能会产生误差，重要信息请核实。</p>
+
+          <!-- 模型选择浮层（伪装多模型选择） -->
+          <div class="popover model-pop" id="model-pop" hidden></div>
 
           <!-- 动作面板 -->
           <div class="popover actions-pop" id="actions-pop" hidden>
-            <div class="pop-title">Quick actions <small>发送一个动作给对方</small></div>
+            <div class="pop-title"><span data-i18n="act.title">快捷动作</span> <small data-i18n="act.sub">发送一个互动动作给对方</small></div>
             <div class="act-list" id="act-list"></div>
             <div class="act-custom">
-              <input id="act-prefix" placeholder="拍了拍" maxlength="200" />
-              <span>对方的</span>
-              <input id="act-suffix" placeholder="电脑（可留空）" maxlength="200" />
+              <input id="act-prefix" data-i18n-placeholder="act.prefixPh" placeholder="拍了拍" maxlength="200" />
+              <span data-i18n="act.mid">对方的</span>
+              <input id="act-suffix" data-i18n-placeholder="act.suffixPh" placeholder="肩膀（可留空）" maxlength="200" />
             </div>
             <div class="act-foot">
               <span class="act-preview" id="act-preview">对方会看到：…</span>
               <span class="spacer"></span>
               <span class="act-count" id="act-count">0/200</span>
-              <button type="button" id="act-save" class="ghost-btn">保存</button>
-              <button type="button" id="act-send" class="send-btn">发送</button>
+              <button type="button" id="act-save" class="ghost-btn" data-i18n="act.save">存为常用</button>
+              <button type="button" id="act-send" class="send-btn" data-i18n="act.send">发送</button>
             </div>
           </div>
         </footer>
 
         <div class="popover settings-pop" id="settings" hidden>
-          <div class="pop-title">Session settings</div>
+          <div class="pop-title" data-i18n="set.title">会话与偏好设置</div>
           <div class="row">
-            <span>Context retention<small>只保留最近 N 轮 · 同一个人连续发的算一轮</small></span>
+            <span><em class="plain-em" data-i18n="set.lang">界面语言</em><small data-i18n="set.langSub">切换中文 / English 显示</small></span>
+            <div class="seg" id="lang-seg"><button type="button" data-lang="zh">中文</button><button type="button" data-lang="en">English</button></div>
+          </div>
+          <div class="row">
+            <span><em class="plain-em" data-i18n="set.keep">保留对话轮数</em><small data-i18n="set.keepSub">只保留最近 N 轮 · 同一人连发算一轮</small></span>
             <div class="stepper">
               <button type="button" data-step="-1">−</button><b id="keep-val">1</b><button type="button" data-step="1">＋</button>
             </div>
           </div>
           <div class="row">
-            <span>Auto-clear after read<small>读完后倒计时焚毁</small></span>
+            <span><em class="plain-em" data-i18n="set.ttl">已读后倒计时焚毁</em><small data-i18n="set.ttlSub">消息读完后自动倒计时清除</small></span>
             <select id="ttl">
-              <option value="0">Off</option><option value="10">10s</option><option value="30">30s</option>
-              <option value="60">1 min</option><option value="300">5 min</option>
+              <option value="0" data-i18n="set.ttlOff">关闭</option>
+              <option value="10" data-i18n="set.ttl10">10 秒</option>
+              <option value="30" data-i18n="set.ttl30">30 秒</option>
+              <option value="60" data-i18n="set.ttl60">1 分钟</option>
+              <option value="300" data-i18n="set.ttl300">5 分钟</option>
             </select>
           </div>
           <div class="row">
-            <span>Media view time<small>图片查看 / 视频播完后多久焚毁</small></span>
+            <span><em class="plain-em" data-i18n="set.mview">媒体查看时长</em><small data-i18n="set.mviewSub">图片打开 / 视频播完后多久焚毁</small></span>
             <select id="mview">
-              <option value="5">5s</option><option value="10">10s</option><option value="30">30s</option><option value="60">1 min</option>
+              <option value="5" data-i18n="set.mview5">5 秒</option>
+              <option value="10" data-i18n="set.mview10">10 秒</option>
+              <option value="30" data-i18n="set.mview30">30 秒</option>
+              <option value="60" data-i18n="set.mview60">1 分钟</option>
             </select>
           </div>
           <div class="row" id="protect-row">
-            <span>Block screenshots<small>截图 / 录屏 / 共享屏幕时窗口为空白</small></span>
+            <span><em class="plain-em" data-i18n="set.protect">防截屏保护</em><small data-i18n="set.protectSub">截图 / 录屏 / 共享屏幕时窗口显示为空白</small></span>
             <input type="checkbox" id="protect-toggle" class="switch" />
           </div>
           <div class="row">
-            <span>Notifications<small>只提示「有新进展」，不含内容</small></span>
+            <span><em class="plain-em" data-i18n="set.notify">新消息系统通知</em><small data-i18n="set.notifySub">仅提示「任务有新进展」，绝不暴露内容</small></span>
             <input type="checkbox" id="notify-toggle" class="switch" />
           </div>
           <div class="row">
-            <span>Background task<small>顶部假装运行中的任务</small></span>
+            <span><em class="plain-em" data-i18n="set.runner">顶部伪装任务栏</em><small data-i18n="set.runnerSub">在顶部显示假装运行中的 AI 工作任务</small></span>
             <input type="checkbox" id="runner-toggle" class="switch" />
           </div>
           <div class="row">
-            <span>Hide on blur<small>切走窗口时自动切到伪装页</small></span>
+            <span><em class="plain-em" data-i18n="set.blur">切走窗口自动伪装</em><small data-i18n="set.blurSub">失去焦点时自动切到老板键伪装页</small></span>
             <input type="checkbox" id="blur-hide" class="switch" />
           </div>
           <div class="row">
-            <span>Workspace profile<small>伪装场景：历史记录、后台任务、伪装页按工种切换</small></span>
+            <span><em class="plain-em" data-i18n="set.persona">工作区伪装场景</em><small data-i18n="set.personaSub">按工种切换假历史记录、后台任务与伪装页</small></span>
             <select id="persona"></select>
           </div>
           <div class="row">
-            <span>Member labels<small>消息和侧栏里显示真名还是代号，只影响自己</small></span>
-            <div class="seg" id="label-seg"><button data-v="name">Name</button><button data-v="alias">Alias</button></div>
+            <span><em class="plain-em" data-i18n="set.memberLabel">成员名称显示</em><small data-i18n="set.memberLabelSub">显示对方真名或 AI 子代理代号（仅自己可见）</small></span>
+            <div class="seg" id="label-seg"><button type="button" data-v="name" data-i18n="set.labelName">真名</button><button type="button" data-v="alias" data-i18n="set.labelAlias">代号</button></div>
           </div>
           <div class="row">
-            <span>Sidebar names<small>双击侧栏任务名即可重命名（含私聊），清空恢复默认</small></span>
-            <button type="button" class="chip" id="recents-reset">Reset</button>
+            <span><em class="plain-em" data-i18n="set.recentsReset">侧栏会话名称</em><small data-i18n="set.recentsResetSub">双击侧栏条目可改名，点右侧恢复默认</small></span>
+            <button type="button" class="chip" id="recents-reset" data-i18n="set.resetBtn">重置</button>
           </div>
           <div class="row">
-            <span>Theme</span>
-            <div class="seg" id="theme-seg"><button data-theme="warm">Warm</button><button data-theme="dark">Dark</button></div>
+            <span data-i18n="set.theme">界面主题</span>
+            <div class="seg" id="theme-seg"><button type="button" data-theme="warm" data-i18n="set.themeWarm">暖白</button><button type="button" data-theme="dark" data-i18n="set.themeDark">深色</button></div>
           </div>
           <div class="row">
-            <span>Fingerprint<small>双方一致 = 口令相同</small></span>
+            <span><em class="plain-em" data-i18n="set.fp">加密口令指纹</em><small data-i18n="set.fpSub">双方指纹一致即代表口令完全相同</small></span>
             <code id="fp">----</code>
           </div>
-          <div class="row" id="relay-row" hidden>
-            <span>Local relay<small id="relay-sub">本机充当局域网服务器，其他人可自动发现</small></span>
-            <input type="checkbox" id="relay-toggle" class="switch" />
+          <div class="row relay-set-row" id="relay-row" hidden>
+            <span><em class="plain-em" data-i18n="set.relay">本机充当服务器（建房间）</em><small id="relay-sub">把这台电脑变成局域网服务器，同 Wi-Fi 的人可自动发现</small></span>
+            <div class="relay-actions">
+              <button type="button" class="chip" id="relay-copy-btn" hidden data-i18n="set.relayCopy">复制地址</button>
+              <input type="checkbox" id="relay-toggle" class="switch" />
+            </div>
           </div>
           <div class="row">
-            <span>Server</span>
+            <span data-i18n="set.server">当前连接服务器</span>
             <code id="server-info">-</code>
           </div>
           <div class="row">
-            <span>Version<small id="build-time"></small></span>
+            <span><em class="plain-em" data-i18n="set.ver">当前版本</em><small id="build-time"></small></span>
             <div class="ver-actions">
               <code id="app-ver">-</code>
-              <button type="button" class="chip" id="check-upd-btn" title="检查 GitHub Releases 新版本">Check</button>
+              <button type="button" class="chip" id="check-upd-btn" data-i18n="set.checkUpd" data-i18n-title="set.checkUpdTitle" title="检查 GitHub Releases 是否有新版本">检查更新</button>
             </div>
           </div>
           <div class="pop-actions">
-            <button type="button" id="clear-btn" title="清空当前会话（双方一起）">Clear context</button>
-            <button type="button" id="leave-btn" class="danger">Leave</button>
+            <button type="button" id="clear-btn" data-i18n="set.clearBtn" data-i18n-title="set.clearBtnTitle" title="清空当前会话（双方屏幕一起清空）">清空当前会话</button>
+            <button type="button" id="leave-btn" class="danger" data-i18n="set.leaveBtn">退出会话</button>
           </div>
-          <div class="keys"><kbd>Esc</kbd> 伪装页 · <kbd id="wipe-kbd">⌘K</kbd> / <kbd>/cls</kbd> 清屏 · <kbd>/host</kbd> 本机服务 · <kbd>/clear</kbd> <kbd>/keep 3</kbd> <kbd>/ttl 30</kbd> <kbd>/leave</kbd></div>
+          <div class="keys" id="keys-hint"></div>
         </div>
-        <div class="drop-hint"><div>Drop to attach<small>端到端加密 · 阅后即焚</small></div></div>
+
+        <div class="drop-hint"><div><span data-i18n="drop.title">松开鼠标发送附件</span><small data-i18n="drop.sub">端到端加密 · 阅后即焚</small></div></div>
         <div class="toast" id="toast" hidden></div>
       </main>
     </section>
@@ -228,25 +306,25 @@
       <div class="upd-card">
         <div class="upd-head">
           <div>
-            <div class="upd-title">Update available</div>
+            <div class="upd-title" data-i18n="upd.title">发现新版本</div>
             <div class="upd-sub" id="upd-ver">-</div>
           </div>
-          <button type="button" class="icon ghost" id="upd-close" title="关闭">✕</button>
+          <button type="button" class="icon ghost" id="upd-close" data-i18n-title="upd.closeTitle" title="关闭">✕</button>
         </div>
         <div class="upd-notes" id="upd-notes"></div>
         <div class="upd-prog" id="upd-prog" hidden>
           <div class="upd-prog-row">
-            <span id="upd-phase">Downloading…</span>
+            <span id="upd-phase">正在下载安装包…</span>
             <span id="upd-pct">0%</span>
           </div>
           <div class="upd-bar"><i id="upd-bar-fill"></i></div>
         </div>
         <p class="upd-err" id="upd-err" hidden></p>
         <div class="upd-foot">
-          <button type="button" class="ghost-btn" id="upd-gh" title="在浏览器打开 GitHub Release 页面">GitHub</button>
+          <button type="button" class="ghost-btn" id="upd-gh" data-i18n-title="upd.ghTitle" title="在浏览器打开 GitHub Release 页面">GitHub</button>
           <span class="spacer"></span>
-          <button type="button" class="ghost-btn" id="upd-cancel">稍后</button>
-          <button type="button" class="send-btn" id="upd-act">更新并重启</button>
+          <button type="button" class="ghost-btn" id="upd-cancel" data-i18n="upd.later">稍后</button>
+          <button type="button" class="send-btn" id="upd-act" data-i18n="upd.actUpdate">更新并重启</button>
         </div>
       </div>
     </div>

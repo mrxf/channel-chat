@@ -38,7 +38,7 @@ class _AgentAppState extends State<AgentApp> {
     return ListenableBuilder(
       listenable: widget.prefs,
       builder: (context, _) => MaterialApp(
-        title: 'Agent',
+        title: 'ChatBuddy',
         debugShowCheckedModeBanner: false,
         theme: buildTheme(Brightness.light),
         darkTheme: buildTheme(Brightness.dark),

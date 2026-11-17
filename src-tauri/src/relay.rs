@@ -300,7 +300,7 @@ fn resolve_relay_name(custom: Option<&str>) -> String {
     if let Some(h) = crate::secret::host_name().map(|h| clean(&h)).filter(|s| !s.is_empty()) {
         return h;
     }
-    "Agent".into()
+    "ChatBuddy".into()
 }
 
 /// 枚举本机私有局域网 IPv4，优先返回物理网卡（Wi-Fi / 有线）地址，排后虚拟网桥

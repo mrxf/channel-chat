@@ -32,7 +32,7 @@ class ConvDrawer extends StatelessWidget {
                 child: Row(children: [
                   const BrandMark(size: 22),
                   const SizedBox(width: 10),
-                  Text('Agent', style: TextStyle(fontFamily: serifFamily, fontSize: 22, fontWeight: FontWeight.w600, color: p.text)),
+                  Text('ChatBuddy', style: TextStyle(fontFamily: serifFamily, fontSize: 22, fontWeight: FontWeight.w600, color: p.text)),
                 ]),
               ),
               Padding(

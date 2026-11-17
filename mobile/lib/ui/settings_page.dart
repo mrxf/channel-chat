@@ -171,13 +171,13 @@ class _BackgroundCardState extends State<_BackgroundCard> with WidgetsBindingObs
   }
 
   String _romGuide() => switch (_rom) {
-        'xiaomi' => '澎湃 / MIUI：请将省电策略设为「无限制」，并在最近任务里下拉锁定 Agent',
-        'huawei' => '鸿蒙 / EMUI：请关闭「自动管理」并开启「允许后台活动」，并在最近任务里锁定 Agent',
-        'honor' => 'MagicOS：请关闭「自动管理」并开启「允许后台活动」，并在最近任务里锁定 Agent',
-        'oppo' => 'ColorOS：请在耗电管理里开启「完全允许后台行为」，并在最近任务里锁定 Agent',
-        'vivo' => 'OriginOS：请开启「允许后台高耗电」，并在最近任务里锁定 Agent',
-        'meizu' => 'Flyme：请开启「允许后台运行」，并在最近任务里锁定 Agent',
-        _ => '部分系统还要在应用设置里允许「后台活动」，并在最近任务里锁定 Agent',
+        'xiaomi' => '澎湃 / MIUI：请将省电策略设为「无限制」，并在最近任务里下拉锁定 ChatBuddy',
+        'huawei' => '鸿蒙 / EMUI：请关闭「自动管理」并开启「允许后台活动」，并在最近任务里锁定 ChatBuddy',
+        'honor' => 'MagicOS：请关闭「自动管理」并开启「允许后台活动」，并在最近任务里锁定 ChatBuddy',
+        'oppo' => 'ColorOS：请在耗电管理里开启「完全允许后台行为」，并在最近任务里锁定 ChatBuddy',
+        'vivo' => 'OriginOS：请开启「允许后台高耗电」，并在最近任务里锁定 ChatBuddy',
+        'meizu' => 'Flyme：请开启「允许后台运行」，并在最近任务里锁定 ChatBuddy',
+        _ => '部分系统还要在应用设置里允许「后台活动」，并在最近任务里锁定 ChatBuddy',
       };
 
   @override

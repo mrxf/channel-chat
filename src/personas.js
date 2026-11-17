@@ -5,6 +5,8 @@
 //   runner  顶部假后台任务：titles 标题池，steps [步骤名, 日志生成器]
 //   decoy   老板键（Esc）显示的假对话，返回 HTML；decoyTask 是它在侧栏里对应的任务名
 
+import { getLang } from './i18n.js';
+
 const r = (n) => Math.floor(Math.random() * n);
 const pick = (a) => a[r(a.length)];
 const secs = () => (Math.random() * 3 + 0.2).toFixed(1);
@@ -18,6 +20,7 @@ const src = (ext = 'ts') => `src/${pick(DIRS)}/${pick(FILES)}.${ext}`;
 
 const dev = {
   label: '研发',
+  labelEn: 'Engineering',
   decoyTask: '重构会话中间件',
   tasks: [
     '重构会话中间件', '修复支付模块不稳定的测试', '配置文件迁移到 TOML',
@@ -76,6 +79,7 @@ const PARTS = ['导语', '第 1 节', '第 2 节', '第 3 节', '结尾段', '�
 
 const writer = {
   label: '文字创作',
+  labelEn: 'Writing & Editorial',
   decoyTask: '新品发布会新闻稿润色',
   tasks: [
     '新品发布会新闻稿润色', '公众号推文：年度盘点', '产品手册第 3 章改写',
@@ -120,6 +124,7 @@ const OFFICE_FILES = ['周会录音转写.txt', '报销明细_10月.xlsx', 'Q4 �
 
 const office = {
   label: '通用 · 办公',
+  labelEn: 'General · Office',
   decoyTask: '整理周会纪要和待办',
   tasks: [
     '整理周会纪要和待办', '起草 Q4 汇报 PPT 大纲', '回复客户邮件：交付延期说明',
@@ -167,6 +172,7 @@ const RES_FILES = ['用户反馈_10月.csv', '销售明细_Q3.xlsx', '行业报�
 
 const research = {
   label: '通用 · 调研分析',
+  labelEn: 'General · Research',
   decoyTask: '10 月用户反馈分类分析',
   tasks: [
     '竞品功能对比调研', '行业报告要点提炼', '10 月用户反馈分类分析',
@@ -213,3 +219,4 @@ const research = {
 export const PERSONAS = { dev, writer, office, research };
 export const DEFAULT_PERSONA = 'dev';
 export const getPersona = (key) => PERSONAS[key] || PERSONAS[DEFAULT_PERSONA];
+export const personaLabel = (p) => (getLang() === 'en' ? p.labelEn || p.label : p.label);

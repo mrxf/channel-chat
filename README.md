@@ -1,6 +1,6 @@
-# private-chat
+# private-chat (ChatBuddy)
 
-局域网阅后即焚聊天：macOS / Windows 原生客户端（Tauri）+ Android 客户端（Flutter），界面伪装成 AI Agent 工作台，消息端到端加密。服务器只转发密文，不存储任何内容。
+局域网阅后即焚聊天：macOS / Windows 原生客户端（Tauri）+ Android 客户端（Flutter），应用名为 **ChatBuddy**，界面伪装成多模型 AI 对话工作台（默认中文，支持中英切换），消息端到端加密。服务器只转发密文，不存储任何内容。
 
 ```
 private-chat/
@@ -19,10 +19,10 @@ private-chat/
 
 局域网内不需要安装 Node.js 或 Docker，**任意一台桌面客户端都可以直接充当服务器**：
 
-1. 打开 `Agent` 客户端，在登录页 `Server` 输入框右侧点击 **Host**（按钮变为绿色 **Hosting**），客户端会在本机 Rust 层直接启动密文中继（默认端口 `10686`，占用则自动递增到 `10700`）并通过 Bonjour / mDNS 在局域网广播。
-2. 房主本机自动使用回环地址连接，点击顶栏 **Share**（或输入 `/host`）会自动复制本机真实的局域网 IP（如 `192.168.1.23:10686`）。
-3. 同一局域网里的其他人打开客户端，登录页会自动发现并填入该地址（或点 **Scan** 扫描）。
-4. 进入会话后，可随时在设置里的 **Local relay** 查看连接数或开关服务；点窗口关闭按钮隐藏到托盘时服务继续运行，退出应用（`Quit`）或关闭开关时自动发送下线通告并清空全部内存。
+1. 打开 `ChatBuddy` 客户端，在登录页连接向导中点击 **开启本机房间**（用我的电脑建房间），客户端会在本机 Rust 层直接启动密文中继（默认端口 `10686`，占用则自动递增到 `10700`）并通过 Bonjour / mDNS 在局域网广播。
+2. 房主本机自动使用回环地址连接，向导卡片和顶栏 **分享地址**（或输入 `/host`）都会直接展示并支持一键复制本机真实的局域网 IP（如 `192.168.1.23:10686`）。
+3. 同一局域网里的其他人打开客户端，登录页会自动发现并填入该地址（或点 **扫描查找** 扫描同一 Wi-Fi 内的房间）。
+4. 进入会话后，可随时在设置里的 **本机充当服务器（建房间）** 查看连接数、复制地址或开关服务；点窗口关闭按钮隐藏到托盘时服务继续运行，退出应用或关闭开关时自动发送下线通告并清空全部内存。
 
 ### 方式二：独立 Node.js / Docker 服务器（适合公网云服务器或常驻部署）
 
@@ -78,14 +78,14 @@ npm run app:build    # 版本号 +1（1.1.0 → 1.1.1）后打包成 .app 和 .d
 
 打包产物在 `src-tauri/target/release/bundle/` 下：
 
-- `macos/Agent.app`
-- `dmg/Agent_<版本号>_aarch64.dmg`
+- `macos/ChatBuddy.app`
+- `dmg/ChatBuddy_<版本号>_aarch64.dmg`
 
-在 Windows 上执行同样的命令，产物是 `bundle/nsis/Agent_<版本号>_x64-setup.exe`（需要 Rust 和 Node，打包工具会自动下载 NSIS）。
+在 Windows 上执行同样的命令，产物是 `bundle/nsis/ChatBuddy_<版本号>_x64-setup.exe`（需要 Rust 和 Node，打包工具会自动下载 NSIS）。
 
 应用没有签名：
 
-- macOS：第一次打开如果提示无法验证开发者，到「系统设置 → 隐私与安全性」点「仍要打开」，或者执行 `xattr -cr /Applications/Agent.app`。
+- macOS：第一次打开如果提示无法验证开发者，到「系统设置 → 隐私与安全性」点「仍要打开」，或者执行 `xattr -cr /Applications/ChatBuddy.app`。
 - Windows：SmartScreen 拦截时点「更多信息 → 仍要运行」。
 
 Windows 版和 macOS 版功能一致，有几处系统差异：未读数显示在托盘图标的悬停提示里（Windows 没有 Dock 角标和菜单栏数字），关闭窗口后程序留在右下角托盘里。
@@ -102,8 +102,9 @@ npm run release current    # 不改版本号，直接给当前版本打 tag
 
 | 任务 | 产物 |
 |---|---|
-| macOS | `Agent_<版本>_macOS_universal.dmg`（Apple 芯片和 Intel 通用） |
-| Windows | `Agent_<版本>_Windows_x64-setup.exe` 安装版、`Agent_<版本>_Windows_x64_portable.exe` 免安装版 |
+| macOS | `ChatBuddy_<版本>_macOS_universal.dmg`（Apple 芯片和 Intel 通用） |
+| Windows | `ChatBuddy_<版本>_Windows_x64-setup.exe` 安装版、`ChatBuddy_<版本>_Windows_x64_portable.exe` 免安装版 |
+| Android | `ChatBuddy_<版本>_Android_arm64.apk`（主流手机）、`ChatBuddy_<版本>_Android_armv7.apk`（旧款 32 位手机） |
 | Docker | `ghcr.io/mrxf/channel-chat-server:<版本>` 和 `:latest`（amd64 + arm64） |
 | 服务端压缩包 | `channel-chat-server_<版本>.tar.gz`，给不用 Docker 的机器 |
 

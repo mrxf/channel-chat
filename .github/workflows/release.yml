@@ -99,11 +99,11 @@ jobs:
         run: |
           mkdir -p out
           if [[ "${{ matrix.name }}" == macOS ]]; then
-            cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg "out/Agent_${VERSION}_macOS_universal.dmg"
+            cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg "out/ChatBuddy_${VERSION}_macOS_universal.dmg"
           else
-            cp src-tauri/target/release/bundle/nsis/*-setup.exe "out/Agent_${VERSION}_Windows_x64-setup.exe"
+            cp src-tauri/target/release/bundle/nsis/*-setup.exe "out/ChatBuddy_${VERSION}_Windows_x64-setup.exe"
             # 免安装版：单个 exe，需要系统自带 WebView2（Windows 10/11 一般都有）
-            cp src-tauri/target/release/agent.exe "out/Agent_${VERSION}_Windows_x64_portable.exe"
+            cp src-tauri/target/release/agent.exe "out/ChatBuddy_${VERSION}_Windows_x64_portable.exe"
           fi
           ls -lh out
 
@@ -193,15 +193,15 @@ jobs:
 
           | 平台 | 文件 |
           |---|---|
-          | macOS（Apple 芯片 + Intel） | \`Agent_${VERSION}_macOS_universal.dmg\` |
-          | Windows 10/11 安装版 | \`Agent_${VERSION}_Windows_x64-setup.exe\` |
-          | Windows 免安装版 | \`Agent_${VERSION}_Windows_x64_portable.exe\` |
-          | Android（绝大多数手机） | \`Agent_${VERSION}_Android_arm64.apk\` |
-          | Android（旧款 32 位手机） | \`Agent_${VERSION}_Android_armv7.apk\` |
+          | macOS（Apple 芯片 + Intel） | \`ChatBuddy_${VERSION}_macOS_universal.dmg\` |
+          | Windows 10/11 安装版 | \`ChatBuddy_${VERSION}_Windows_x64-setup.exe\` |
+          | Windows 免安装版 | \`ChatBuddy_${VERSION}_Windows_x64_portable.exe\` |
+          | Android（绝大多数手机） | \`ChatBuddy_${VERSION}_Android_arm64.apk\` |
+          | Android（旧款 32 位手机） | \`ChatBuddy_${VERSION}_Android_armv7.apk\` |
           | 服务端（Node 18+） | \`channel-chat-server_${VERSION}.tar.gz\`，解压后 \`npm i && npm start\` |
 
           安装包没有签名：
-          - **macOS**：第一次打开如果提示无法验证开发者，到「系统设置 → 隐私与安全性」点「仍要打开」，或者执行 \`xattr -cr /Applications/Agent.app\`。
+          - **macOS**：第一次打开如果提示无法验证开发者，到「系统设置 → 隐私与安全性」点「仍要打开」，或者执行 \`xattr -cr /Applications/ChatBuddy.app\`。
           - **Windows**：SmartScreen 拦截时点「更多信息 → 仍要运行」。
           - **Android**：安装时允许「安装未知来源应用」。手机端只连接已有服务器，不能自己开服务器。
 

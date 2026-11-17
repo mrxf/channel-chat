@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Agent",
+  "productName": "ChatBuddy",
   "version": "../package.json",
   "identifier": "com.agentworkspace.desktop",
   "build": {
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Agent",
+        "title": "ChatBuddy",
         "width": 1180,
         "height": 780,
         "minWidth": 720,

@@ -144,7 +144,7 @@ class KeepAliveService : Service() {
             Notification.Builder(this).setPriority(Notification.PRIORITY_LOW)
         }
         b.setSmallIcon(R.drawable.ic_stat_agent)
-            .setContentTitle("Agent")
+            .setContentTitle("ChatBuddy")
             .setContentText(text)
             .setColor(0xFFD97757.toInt())
             .setOngoing(true)

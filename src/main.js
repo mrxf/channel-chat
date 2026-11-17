@@ -3,8 +3,11 @@ import { deriveSession, seal, open, randomId, generateKey, sealChunk, chunkHeade
 import { prepareFile, fmtSize, fmtDur, CHUNK, MAX_VIDEO, MAX_IMAGE_RAW, MAX_INFLIGHT, IMAGE_MIME, VIDEO_MIME } from './media.js';
 import { native } from './native.js';
 import { createRunner } from './runner.js';
-import { PERSONAS, getPersona } from './personas.js';
-import { SERVER_LIST_URL, DEFAULT_PORT, DISCOVERY_PORT, MAX_ACTION_LEN } from './config.js';
+import { PERSONAS, getPersona, personaLabel } from './personas.js';
+import { SERVER_LIST_URL, DEFAULT_PORT, MAX_ACTION_LEN } from './config.js';
+import { DEFAULT_LANG, t, setLang, getLang, applyDomI18n } from './i18n.js';
+import { createLanModule } from './lan.js';
+import { DEFAULT_MODEL, createModelPicker } from './models.js';
 
 const $ = (s) => document.querySelector(s);
 // 客户端能力：旧版客户端的 hello/hi 不带 caps。media = 能收附件，dm = 支持私聊
@@ -17,10 +20,15 @@ const ACTION_TTL = 20; // 动作读完 20 秒后焚毁
 
 /* ---------------- 本地偏好（不含任何消息内容） ---------------- */
 const prefs = Object.assign(
-  { name: '', server: '', recentServers: [], theme: null, blurHide: false, notify: true, runner: true, runnerOpen: true, protect: false, customActions: [], persona: 'dev', rememberKey: true, recentNames: {}, dmNames: {}, memberLabel: 'name' },
+  {
+    name: '', server: '', recentServers: [], theme: null, blurHide: false, notify: true, runner: true,
+    runnerOpen: true, protect: false, customActions: [], persona: 'dev', rememberKey: true,
+    recentNames: {}, dmNames: {}, memberLabel: 'name', lang: DEFAULT_LANG, model: DEFAULT_MODEL,
+  },
   await native.loadPrefs(),
 );
 const savePrefs = () => native.savePrefs(prefs);
+setLang(prefs.lang || DEFAULT_LANG);
 const MEDIA_VIEW_OPTS = [5, 10, 30, 60];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const DEBUG_MEDIA = import.meta.env.DEV && !!import.meta.env.VITE_AUTOVIEW;
@@ -210,13 +218,13 @@ const actionText = (a, target) => `${a.prefix}${target}${a.suffix ? '的' + a.su
 /* ---------------- 服务器地址 ---------------- */
 function toWsUrl(input) {
   let s = input.trim();
-  if (!s) throw new Error('请填写服务器地址');
+  if (!s) throw new Error(t('join.errNoServer'));
   if (!/^[a-z]+:\/\//i.test(s)) s = 'ws://' + s;
   let u;
-  try { u = new URL(s); } catch { throw new Error('服务器地址格式不对，例如 192.168.1.5:10686'); }
+  try { u = new URL(s); } catch { throw new Error(t('join.errBadServer')); }
   if (u.protocol === 'http:') u.protocol = 'ws:';
   if (u.protocol === 'https:') u.protocol = 'wss:';
-  if (u.protocol !== 'ws:' && u.protocol !== 'wss:') throw new Error('不支持的协议');
+  if (u.protocol !== 'ws:' && u.protocol !== 'wss:') throw new Error(t('join.errBadProto'));
   if (!u.port && u.protocol === 'ws:') u.port = String(DEFAULT_PORT);
   u.pathname = '/ws'; u.search = ''; u.hash = '';
   return u.toString();
@@ -258,15 +266,7 @@ if (SERVER_LIST_URL) {
 
 // 探测服务器是否在线：输入时防抖调用；返回 true / false
 let probeTimer, probeSeq = 0;
-let lanFound = []; // 局域网自动发现的结果 [{ name, host, port }]
-let relayInfo = { running: false, name: '', port: 0, localAddr: '', shareAddr: '', addrs: [], clients: 0, rooms: 0 };
-let relayBusy = false;
 const setServerHint = (text, cls = '') => { const h = $('#server-hint'); h.textContent = text || '\u00a0'; h.className = `field-hint ${cls}`; };
-
-function isLocalRelayHost(hostPort) {
-  if (!relayInfo.running || !hostPort) return false;
-  return hostPort === relayInfo.localAddr || hostPort === `localhost:${relayInfo.port}` || relayInfo.addrs.includes(hostPort);
-}
 
 function isLoopbackVal(val) {
   try {
@@ -275,74 +275,60 @@ function isLoopbackVal(val) {
   } catch { return false; }
 }
 
-function renderRelayUI() {
-  const hostBtn = $('#srv-host');
-  if (hostBtn) {
-    hostBtn.disabled = relayBusy;
-    hostBtn.textContent = relayBusy ? '…' : relayInfo.running ? 'Hosting' : 'Host';
-    hostBtn.classList.toggle('hosting', relayInfo.running);
-    hostBtn.title = relayInfo.running
-      ? `本机服务运行中（${relayInfo.shareAddr}），点击停止`
-      : '在本机启动局域网服务器，其他人打开客户端即可自动发现';
-  }
-  const row = $('#relay-row');
-  if (row && native.canHost) {
-    row.hidden = false;
-    const toggle = $('#relay-toggle');
-    toggle.checked = relayInfo.running;
-    toggle.disabled = relayBusy;
-    $('#relay-sub').textContent = relayInfo.running
-      ? `${relayInfo.shareAddr} · ${relayInfo.clients} 连接（关窗不断连）`
-      : '本机充当局域网服务器，其他人可自动发现';
-  }
-  if (state.entered && state.wsUrl) {
-    const curHost = shortServer(state.wsUrl);
-    if (isLocalRelayHost(curHost)) {
-      $('#server-info').textContent = `${relayInfo.shareAddr} (Local)`;
-      $('#server-info').title = `本机内置服务 · 局域网地址 ${relayInfo.shareAddr}`;
-    } else {
-      $('#server-info').textContent = state.serverName ? `${state.serverName} · ${curHost}` : curHost;
-      $('#server-info').title = '';
-    }
-  }
-}
-
-async function refreshRelayStatus(recheckJoin = false) {
-  if (!native.canHost) return relayInfo;
-  relayInfo = await native.relayStatus();
-  renderRelayUI();
-  if (recheckJoin && !state.entered && $('#server').value.trim()) checkServer($('#server').value.trim());
-  return relayInfo;
-}
+const lan = createLanModule({
+  native,
+  getServerInput: () => $('#server').value.trim(),
+  setServerInput: (v) => { $('#server').value = v; },
+  getDisplayName: () => $('#name').value.trim().slice(0, 24) || state.name || prefs.name || '',
+  checkServer: (v) => checkServer(v),
+  renderServerList,
+  setServerHint,
+  showJoinError,
+  copyText,
+  toast,
+  isEntered: () => state.entered,
+  getWsHost: () => (state.wsUrl ? shortServer(state.wsUrl) : ''),
+  getServerName: () => state.serverName,
+  onReconnectToLocal: (localAddr) => {
+    const old = state.ws;
+    state.ws = null;
+    old?.close();
+    state.wsUrl = toWsUrl(localAddr);
+    state.retry = 0;
+    lan.renderUI();
+    connect().catch(() => {});
+  },
+});
 
 async function checkServer(val) {
   const seq = ++probeSeq;
   let wsUrl, url;
   try { wsUrl = toWsUrl(val); url = httpUrl(wsUrl, '/health'); } catch (e) { setServerHint(e.message, 'bad'); return false; }
-  setServerHint('Checking…');
+  setServerHint(t('join.checking'));
   try {
     const ctl = new AbortController();
     setTimeout(() => ctl.abort(), 3000);
     const d = await (await fetch(url, { signal: ctl.signal, cache: 'no-store' })).json();
     if (d?.app !== 'agent-relay') throw new Error();
     if (seq === probeSeq) {
-      if (isLocalRelayHost(shortServer(wsUrl))) {
-        const lan = relayInfo.shareAddr !== relayInfo.localAddr
-          ? `其他人可自动发现，或填 ${relayInfo.shareAddr}`
-          : '本机回环模式（未检测到局域网连接）';
-        setServerHint(`● Hosting · ${lan}`, 'good');
+      if (lan.isLocalRelayHost(shortServer(wsUrl))) {
+        const info = lan.relayInfo;
+        const msg = info.shareAddr !== info.localAddr
+          ? t('join.hostingLan', { addr: info.shareAddr })
+          : t('join.hostingLoopback');
+        setServerHint(`● ${msg}`, 'good');
       } else {
-        const more = lanFound.length > 1 ? ` · 局域网共 ${lanFound.length} 个，点输入框可切换` : '';
-        setServerHint(`● Online · ${String(d.name || 'relay').slice(0, 40)}${more}`, 'good');
+        const more = lan.lanFound.length > 1 ? t('join.onlineMore', { n: lan.lanFound.length }) : '';
+        setServerHint(t('join.online', { name: String(d.name || 'relay').slice(0, 40), more }), 'good');
       }
     }
     return true;
   } catch {
     if (seq === probeSeq) {
-      if (native.canHost && !relayInfo.running && isLoopbackVal(val)) {
-        setServerHint('○ 本机服务未开启 · 点右侧 Host 启动，或点 Scan 查找他人', 'bad');
+      if (native.canHost && !lan.relayInfo.running && isLoopbackVal(val)) {
+        setServerHint(t('join.loopbackOff'), 'bad');
       } else {
-        setServerHint('○ Unreachable', 'bad');
+        setServerHint(t('join.unreachable'), 'bad');
       }
     }
     return false;
@@ -357,97 +343,14 @@ function probe() {
 }
 $('#server').addEventListener('input', probe);
 
-/* 局域网自动发现：打开登录页时先听 Bonjour 广播；找不到时可以点 Scan，在本网段探测约定端口 */
-const lanUrl = (f) => `${f.host}:${f.port}`;
-
-// force：当前地址为空 / 不可用 / 用户主动点了 Scan 时，直接填入发现的第一个
-function applyFound(list, force) {
-  const seen = new Set();
-  const others = list.filter((f) => f && typeof f.host === 'string' && !(relayInfo.running && relayInfo.addrs.includes(lanUrl(f))));
-  lanFound = others.filter((f) => !seen.has(lanUrl(f)) && seen.add(lanUrl(f)));
-  const localOpt = relayInfo.running ? [{ url: relayInfo.localAddr, name: `${relayInfo.name || '本机'} · 本机服务 (${relayInfo.shareAddr})` }] : [];
-  renderServerList([...localOpt, ...lanFound.map((f) => ({ url: lanUrl(f), name: `${String(f.name || 'relay').slice(0, 40)} · 局域网` }))]);
-  if (!lanFound.length) return false;
-  const cur = $('#server').value.trim();
-  if (force && !lanFound.some((f) => lanUrl(f) === cur)) $('#server').value = lanUrl(lanFound[0]);
-  checkServer($('#server').value.trim());
-  return true;
-}
-
-async function scanLan() {
-  const btn = $('#srv-scan');
-  if (btn.disabled) return;
-  btn.disabled = true; btn.textContent = '…';
-  try {
-    setServerHint('Searching local network…');
-    let list = await native.discover(2000);
-    if (!list.filter((f) => !(relayInfo.running && relayInfo.addrs.includes(lanUrl(f)))).length) {
-      setServerHint(`Scanning this subnet on port ${DISCOVERY_PORT}…`);
-      list = await native.scanSubnet(DISCOVERY_PORT);
-    }
-    if (!applyFound(list, true)) {
-      if (relayInfo.running) checkServer($('#server').value.trim());
-      else setServerHint('局域网里没有找到服务器 · 可点 Host 在本机直接开启', 'bad');
-    }
-  } finally {
-    btn.disabled = false; btn.textContent = 'Scan';
-  }
-}
-
-async function toggleHostFromJoin() {
-  if (!native.canHost || relayBusy) return;
-  relayBusy = true;
-  renderRelayUI();
-  showJoinError('');
-  try {
-    if (relayInfo.running) {
-      const wasLocal = isLocalRelayHost((() => { try { return shortServer(toWsUrl($('#server').value)); } catch { return ''; } })());
-      relayInfo = await native.relayStop();
-      renderRelayUI();
-      applyFound(lanFound, false);
-      if (wasLocal) {
-        $('#server').value = '';
-        setServerHint('已停止本机局域网服务');
-        const list = await native.discover(1000);
-        applyFound(list, true);
-      }
-    } else {
-      const name = $('#name').value.trim().slice(0, 24) || prefs.name || '';
-      relayInfo = await native.relayStart({ name });
-      renderRelayUI();
-      applyFound(lanFound, false);
-      $('#server').value = relayInfo.localAddr;
-      await checkServer(relayInfo.localAddr);
-      if (!$('#name').value.trim()) $('#name').focus();
-      else if (!$('#pass').value) $('#pass').focus();
-      else $('#join-btn').focus();
-    }
-  } catch (err) {
-    const msg = typeof err === 'string' ? err : err?.message || '启动本机服务失败';
-    setServerHint(msg, 'bad');
-  } finally {
-    relayBusy = false;
-    renderRelayUI();
-  }
-}
-
-if (native.canDiscover) {
-  $('#srv-btns').hidden = false;
-  $('#srv-scan').onclick = scanLan;
-  $('#srv-host').onclick = toggleHostFromJoin;
-  (async () => {
-    await refreshRelayStatus();
-    const saved = $('#server').value.trim();
-    if (!saved && relayInfo.running) {
-      $('#server').value = relayInfo.localAddr;
-      await checkServer(relayInfo.localAddr);
-      return;
-    }
-    if (!saved) setServerHint('Searching local network…');
-    const [list, ok] = await Promise.all([native.discover(1500), saved ? checkServer(saved) : false]);
-    if (!applyFound(list, !ok) && !saved) setServerHint('没有自动发现服务器 · 点 Host 在本机开启，或点 Scan 查找');
-  })();
-} else if (prefs.server) {
+if (
+  !lan.bindJoinEvents({
+    parseHostOfInput: () => {
+      try { return shortServer(toWsUrl($('#server').value)); } catch { return ''; }
+    },
+  })
+  && prefs.server
+) {
   probe();
 }
 
@@ -458,7 +361,7 @@ $('#pw-gen').onclick = async () => {
   p.type = 'text';
   const ok = await copyText(p.value, p);
   const hint = $('#pass-hint');
-  hint.textContent = ok ? '已生成并复制，发给对方即可' : '已生成，请手动复制给对方';
+  hint.textContent = ok ? t('join.keyGenCopied') : t('join.keyGenManual');
   hint.className = 'field-hint good';
 };
 
@@ -474,12 +377,15 @@ async function fillSavedKey() {
   if ($('#server').value.trim() && $('#name').value.trim()) $('#join-btn').focus();
 }
 
+function renderRememberTexts() {
+  if (!native.canRemember) return;
+  $('#remember-title').textContent = native.isMac ? t('join.rememberMac') : t('join.rememberPc');
+  $('#remember-sub').textContent = native.isMac ? t('join.rememberSubMac') : t('join.rememberSubPc');
+}
+
 if (native.canRemember) {
   $('#remember-row').hidden = false;
-  if (!native.isMac) {
-    $('#remember-row span').textContent = 'Remember on this PC';
-    $('#remember-row small').textContent = '口令加密保存在本机，只能在这台电脑上解开';
-  }
+  renderRememberTexts();
   $('#remember-key').checked = prefs.rememberKey;
   $('#remember-key').onchange = (e) => {
     prefs.rememberKey = e.target.checked;
@@ -487,7 +393,7 @@ if (native.canRemember) {
     const hint = $('#pass-hint');
     if (!prefs.rememberKey && savedKey) {
       native.deleteSecret(); savedKey = null;
-      hint.textContent = '已删除本机保存的口令'; hint.className = 'field-hint';
+      hint.textContent = t('join.rememberDeleted'); hint.className = 'field-hint';
     }
   };
   fillSavedKey();
@@ -505,18 +411,18 @@ $('#join-form').onsubmit = async (e) => {
   const pass = $('#pass').value;
   let wsUrl;
   try { wsUrl = toWsUrl($('#server').value); } catch (err) { return showJoinError(err.message); }
-  if (!name) return showJoinError('请填写显示名称');
-  if (pass.length < 4) return showJoinError('口令至少 4 位');
+  if (!name) return showJoinError(t('join.errNoName'));
+  if (pass.length < 4) return showJoinError(t('join.errShortKey'));
 
   const btn = $('#join-btn');
-  btn.disabled = true; btn.textContent = 'Deriving key…';
+  btn.disabled = true; btn.textContent = t('join.deriving');
   if (prefs.notify) native.ensureNotifyPermission();
   try {
     state.name = name;
     state.cid = randomId(); // 本次会话的成员 ID，只在内存里
     state.wsUrl = wsUrl;
     state.session = await deriveSession(pass);
-    btn.textContent = 'Connecting…';
+    btn.textContent = t('join.connecting');
     await connect(true);
     // 记住名称和服务器；口令只有勾选时才保存
     if (native.canRemember) {
@@ -527,7 +433,7 @@ $('#join-form').onsubmit = async (e) => {
     prefs.server = $('#server').value.trim();
     prefs.recentServers = [prefs.server, ...prefs.recentServers.filter((s) => s !== prefs.server)].slice(0, 8);
     savePrefs();
-    renderServerList();
+    lan.syncServerOptions();
     $('#pass').value = ''; $('#pass').type = 'password'; $('#pass-hint').innerHTML = '&nbsp;';
     enterMain();
   } catch (err) {
@@ -535,9 +441,9 @@ $('#join-form').onsubmit = async (e) => {
     const ws = state.ws;
     state.ws = null;
     ws?.close();
-    showJoinError(err.message || '连接失败');
+    showJoinError(err.message || t('join.errConnect'));
   } finally {
-    btn.disabled = false; btn.textContent = 'Continue';
+    btn.disabled = false; btn.textContent = t('join.submit');
   }
 };
 
@@ -551,6 +457,17 @@ const runner = createRunner($('#runner'), {
   onToggle: (o) => { prefs.runnerOpen = o; savePrefs(); },
 });
 
+const modelPicker = createModelPicker({
+  btnEl: $('#model-btn'),
+  popEl: $('#model-pop'),
+  initialModel: prefs.model,
+  onSelect: (modelId) => {
+    prefs.model = modelId;
+    savePrefs();
+    toast(t('model.switched', { model: modelId }));
+  },
+});
+
 function enterMain() {
   state.entered = true;
   const fp = state.session.fingerprint;
@@ -560,9 +477,10 @@ function enterMain() {
   $('#avatar').textContent = [...state.name][0].toUpperCase();
   $('#fp').textContent = fp.match(/.{4}/g).join(' ');
   $('#app-ver').textContent = `v${APP_VERSION}`;
-  $('#build-time').textContent = `打包于 ${__BUILD_TIME__}`;
-  renderRelayUI();
-  refreshRelayStatus();
+  $('#build-time').textContent = t('set.buildTime', { time: __BUILD_TIME__ });
+  lan.renderUI();
+  lan.refreshStatus();
+  renderPersonaOptions();
   renderPersona();
   applyCfgUI();
   applyRunner();
@@ -573,13 +491,13 @@ function enterMain() {
 /* ---------------- 网络 ---------------- */
 function connect(first = false) {
   return new Promise((resolve, reject) => {
-    setStatus('Connecting…', 'wait');
+    setStatusKey('connecting', 'wait');
     let done = false;
     const ws = new WebSocket(state.wsUrl);
     ws.binaryType = 'arraybuffer';
     state.ws = ws;
     const timeout = setTimeout(() => {
-      if (!done) { done = true; reject(new Error('连接超时，请检查服务器地址')); ws.close(); }
+      if (!done) { done = true; reject(new Error(t('join.errTimeout'))); ws.close(); }
     }, 6000);
 
     ws.onmessage = (ev) => {
@@ -591,7 +509,7 @@ function connect(first = false) {
           state.serverMedia = Array.isArray(m.features) && m.features.includes('media');
           state.serverDirect = Array.isArray(m.features) && m.features.includes('direct');
           state.serverActions = (Array.isArray(m.actions) ? m.actions : []).map(sanitizeAction).filter(Boolean).slice(0, 50);
-          if (state.entered) { renderActions(); renderRelayUI(); }
+          if (state.entered) { renderActions(); lan.renderUI(); }
           ws.send(JSON.stringify({ type: 'join', room: state.session.roomId }));
           break;
         case 'joined':
@@ -627,9 +545,9 @@ function connect(first = false) {
     };
     ws.onclose = () => {
       clearTimeout(timeout);
-      if (!done) { done = true; reject(new Error('无法连接服务器')); }
+      if (!done) { done = true; reject(new Error(t('join.errConnect'))); }
       if (state.ws !== ws || !state.session || (first && !state.entered)) return;
-      setStatus('Reconnecting…', 'off');
+      setStatusKey('reconnecting', 'off');
       markAllOffline();
       const delay = Math.min(8000, 500 * 2 ** state.retry++);
       setTimeout(() => { if (state.session && state.ws === ws) connect().catch(() => {}); }, delay);
@@ -693,8 +611,8 @@ function dropFromNeed(cid) {
 function memberGone(p) {
   p.online = false;
   p.conn = null;
-  sys(`MCP server ${whoHTML(p, 'who')} disconnected`);
-  if (threadEl(dmConv(p.cid))) sys(`MCP server ${whoHTML(p, 'who')} disconnected`, dmConv(p.cid));
+  sys(t('msg.sysLeave', { who: whoHTML(p, 'who') }));
+  if (threadEl(dmConv(p.cid))) sys(t('msg.sysLeave', { who: whoHTML(p, 'who') }), dmConv(p.cid));
   dropFromNeed(p.cid);
   refreshLabels();
 }
@@ -713,8 +631,8 @@ function checkPeerVersion(p, m) {
   if (v && isVerNewer(APP_VERSION, v) && !updState.info?.hasUpdate) checkForUpdate();
   if (v === APP_VERSION || p.warned) return;
   p.warned = true;
-  const dm = hasCap(p, 'dm') ? '' : ' · 不支持私聊';
-  sys(`MCP server ${whoHTML(p, 'who')} 版本 ${v ? 'v' + v : '较旧'}，你是 v${APP_VERSION}${dm} · 建议大家使用同一版本`);
+  const dm = hasCap(p, 'dm') ? '' : t('msg.sysNoDm');
+  sys(t('msg.sysVer', { who: whoHTML(p, 'who'), peerVer: v ? 'v' + v : t('msg.sysVerOld'), myVer: APP_VERSION, dm }));
 }
 
 function fresh(m) {
@@ -741,8 +659,8 @@ function onInner(from, m) {
         if (p.quiet) resendAcked(p, from); // 自己断线重连：补发离线期间读完的回执
       }
       if ((isNew || back) && !p.quiet) {
-        sys(`MCP server ${whoHTML(p, 'who')} connected`);
-        if (back && threadEl(dmConv(p.cid))) sys(`MCP server ${whoHTML(p, 'who')} connected`, dmConv(p.cid));
+        sys(t('msg.sysJoin', { who: whoHTML(p, 'who') }));
+        if (back && threadEl(dmConv(p.cid))) sys(t('msg.sysJoin', { who: whoHTML(p, 'who') }), dmConv(p.cid));
       }
       p.quiet = false;
       flushReceipts();
@@ -751,7 +669,12 @@ function onInner(from, m) {
     case 'cfg':
       if (conv !== GROUP) return;
       setCfg(m, false);
-      sys(`Settings updated by ${whoHTML(p, 'who')} · retain ${state.cfg.keep} · auto-clear ${state.cfg.ttl ? state.cfg.ttl + 's' : 'off'} · media ${state.cfg.mview}s`);
+      sys(t('msg.sysCfg', {
+        who: whoHTML(p, 'who'),
+        keep: state.cfg.keep,
+        ttl: state.cfg.ttl ? state.cfg.ttl + 's' : t('set.ttlOff'),
+        mview: state.cfg.mview,
+      }));
       break;
     case 'msg':
       if (typeof m.text !== 'string' || !fresh(m)) return;
@@ -821,30 +744,32 @@ function renderReceipt(it) {
   const n = it.readBy?.size ?? 0;
   const total = it.total ?? 0;
   const done = n > 0 && [...(it.need || [])].every((c) => it.readBy.has(c));
+  const sep = getLang() === 'en' ? ', ' : '、';
+  const colon = getLang() === 'en' ? ': ' : '：';
   const names = [...(it.readBy || [])].map((c) => state.members.get(c)).filter(Boolean).map((p) => labelOf(p).text);
-  const who = names.length ? `：${names.join('、')}` : '';
+  const who = names.length ? `${colon}${names.join(sep)}` : '';
 
   let cls, ico, count = '', tip;
   if (total === 0 && n === 0) {
-    cls = 'none'; ico = RC_NONE; tip = '未送达 · 发送时无人在线';
+    cls = 'none'; ico = RC_NONE; tip = t('msg.rcNone');
   } else if (done) {
     cls = 'read'; ico = RC_READ;
     if (total > 1 && n < total) {
       count = `${n}/${total}`;
-      tip = `已读 ${n}/${total}（其余已离线）${who}`;
+      tip = t('msg.rcReadPartOff', { n, total, who });
     } else {
-      tip = total > 1 ? `全部已读${who}` : '对方已读';
+      tip = total > 1 ? t('msg.rcReadAll', { who }) : t('msg.rcReadPeer');
     }
   } else if (n > 0) {
     cls = 'part'; ico = RC_READ;
     count = `${Math.min(n, total)}/${total}`;
-    tip = `已读 ${Math.min(n, total)}/${total}${who}`;
+    tip = t('msg.rcPart', { n: Math.min(n, total), total, who });
   } else {
     cls = 'sent'; ico = RC_SENT;
     if (total > 1) count = `0/${total}`;
     tip = total > 1
-      ? `已发送 · 0/${total} 已读`
-      : (it.need?.size === 0 ? '已发送 · 对方已离线（未读）' : '已发送 · 未读');
+      ? t('msg.rcSentGroup', { total })
+      : (it.need?.size === 0 ? t('msg.rcSentOff') : t('msg.rcSentUnread'));
   }
 
   const key = `${cls}|${count}`;
@@ -870,13 +795,28 @@ function progress(it) {
   if (renderReceipt(it)) markRead(it);
 }
 
-function setStatus(text, kind) {
-  $('#status').textContent = text;
-  $('#dot').className = kind;
+let lastStatusKey = 'connecting';
+let lastStatusKind = 'wait';
+function renderStatusText() {
+  if (lastStatusKey === 'online') {
+    $('#status').textContent = state.online > 1
+      ? t('side.connectedMany', { n: state.online })
+      : t('side.connectedWait');
+  } else if (lastStatusKey === 'reconnecting') {
+    $('#status').textContent = t('side.reconnecting');
+  } else {
+    $('#status').textContent = t('side.connecting');
+  }
+  $('#dot').className = lastStatusKind;
+}
+function setStatusKey(key, kind) {
+  lastStatusKey = key;
+  lastStatusKind = kind;
+  renderStatusText();
 }
 function updateCount(n) {
   state.online = n;
-  setStatus(n > 1 ? `Connected · ${n} online` : 'Connected · waiting for peer', 'on');
+  setStatusKey('online', 'on');
 }
 
 /* ================================================================
@@ -886,7 +826,7 @@ function updateCount(n) {
  *   - 只有已读消息参与「保留 N 条」和倒计时焚毁；未读消息不会被焚毁
  * ================================================================ */
 const ICON_CLEAR = '<svg viewBox="0 0 16 16" width="12.5" height="12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.2h10.4M6 4.2V3c0-.4.3-.7.7-.7h2.6c.4 0 .7.3.7.7v1.2M4.2 4.2l.55 8.3c.04.55.5 1 1.05 1h4.4c.55 0 1.01-.45 1.05-1l.55-8.3M6.7 7v4M9.3 7v4"/></svg>';
-const CLEAR_BTN = `<button type="button" class="msg-clear" title="清除并隐藏此消息（仅本地）">${ICON_CLEAR}</button>`;
+const clearBtnHTML = () => `<button type="button" class="msg-clear" title="${esc(t('msg.clearTitle'))}">${ICON_CLEAR}</button>`;
 
 function addItem(it) {
   Object.assign(it, { seen: it.mine, read: false, readMs: 0, timer: null });
@@ -895,23 +835,24 @@ function addItem(it) {
   const el = document.createElement('div');
   el.dataset.id = it.id;
   const sender = it.mine ? null : state.members.get(it.cid);
+  const clr = clearBtnHTML();
   if (it.kind === 'media') {
     el.className = `item media ${it.mine ? 'mine' : 'theirs'}`;
     el.innerHTML = mediaHTML(it, sender);
   } else if (it.kind === 'action') {
     el.className = 'item act-item';
     el.innerHTML = it.mine
-      ? `<span class="act-ico">⌁</span><span><b>你</b>${esc(actionText(it.action, it.target))}</span>${CLEAR_BTN}`
-      : `<span class="act-ico">⌁</span><span>${whoHTML(sender, 'who')}${esc(actionText(it.action, it.all ? '大家' : '你'))}</span>${CLEAR_BTN}`;
+      ? `<span class="act-ico">⌁</span><span><b>${esc(t('act.you'))}</b>${esc(actionText(it.action, it.target))}</span>${clr}`
+      : `<span class="act-ico">⌁</span><span>${whoHTML(sender, 'who')}${esc(actionText(it.action, it.all ? t('act.everyone') : t('act.you').trim()))}</span>${clr}`;
   } else if (it.mine) {
     el.className = 'item msg user';
-    el.innerHTML = `<div class="bubble">${format(it.text)}</div><div class="msg-foot">${CLEAR_BTN}<span class="rc"></span></div>`;
+    el.innerHTML = `<div class="bubble">${format(it.text)}</div><div class="msg-foot">${clr}<span class="rc"></span></div>`;
   } else {
     const n = hashNum(it.id);
     el.className = 'item msg agent unread';
     el.innerHTML = `<div class="agent-head">${mark}<span class="tool">${esc(toolLine(n))} <i>›</i></span>${whoHTML(sender)}</div>
       <div class="prose">${format(it.text)}</div>
-      <div class="msg-foot agent-foot">${CLEAR_BTN}</div>`;
+      <div class="msg-foot agent-foot">${clr}</div>`;
   }
   it.el = el;
   if (it.mine && it.kind === 'msg') renderReceipt(it);
@@ -1037,7 +978,7 @@ function burn(it, instant = false) {
       state.compacted.add(it.conv);
       const c = document.createElement('div');
       c.className = 'compact';
-      c.textContent = 'Earlier context compacted';
+      c.textContent = t('msg.compacted');
       threadOf(it.conv).prepend(c);
     }
   }
@@ -1116,13 +1057,13 @@ function updateUnread(arrived) {
   if (count !== state.unread) {
     state.unread = count;
     native.setUnread(count);
-    if (!native.inTauri) document.title = count ? `(${count}) Agent` : 'Agent';
+    if (!native.inTauri) document.title = count ? `(${count}) ChatBuddy` : 'ChatBuddy';
   }
   if (arrived && count > 0 && prefs.notify && !isReading() && Date.now() - state.lastNotify > 8000) {
     state.lastNotify = Date.now();
     const last = state.items.at(-1);
     // 只给通用提示，不暴露内容和发送者
-    native.notify('Agent', last?.kind === 'action' ? '你有一条新的动态' : '任务有新的进展，点击查看');
+    native.notify('ChatBuddy', last?.kind === 'action' ? t('notify.action') : t('notify.msg'));
   }
 }
 
@@ -1147,8 +1088,8 @@ function renderActions() {
     ...prefs.customActions.map((a, i) => ({ a: sanitizeAction(a), src: 'custom', i })).filter((c) => c.a),
   ];
   $('#act-list').innerHTML = chips.length
-    ? chips.map(({ a, src, i }) => `<button type="button" class="act-chip ${src}" data-src="${src}" data-i="${i}">${esc(actionText(a, '对方'))}${src === 'custom' ? '<span class="del" title="删除">×</span>' : ''}</button>`).join('')
-    : '<span class="muted small">服务器没有预制动作，可以在下面自定义</span>';
+    ? chips.map(({ a, src, i }) => `<button type="button" class="act-chip ${src}" data-src="${src}" data-i="${i}">${esc(actionText(a, t('act.peer')))}${src === 'custom' ? `<span class="del" title="${esc(t('act.delTitle'))}">×</span>` : ''}</button>`).join('')
+    : `<span class="muted small">${esc(t('act.empty'))}</span>`;
 }
 
 $('#act-list').onclick = (e) => {
@@ -1170,42 +1111,43 @@ function updateActPreview() {
   $('#act-count').textContent = `${len}/${MAX_ACTION_LEN}`;
   $('#act-count').classList.toggle('over', len > MAX_ACTION_LEN);
   const { who, all } = actionTarget();
-  $('#act-preview').textContent = `${who}会看到：${p ? state.name + actionText({ prefix: p, suffix: s }, all ? '大家' : '你') : '…'}`;
+  const previewText = p ? state.name + actionText({ prefix: p, suffix: s }, all ? t('act.everyone') : t('act.you').trim()) : '…';
+  $('#act-preview').textContent = t('act.preview', { who, text: previewText });
 }
 /** 动作发给谁：私聊是对方；群聊里有两人以上在线时是「大家」 */
 function actionTarget() {
   const peer = convPeer(state.active);
   if (peer) return { who: labelOf(peer).text, all: false, peer };
   const all = onlineMembers().length >= 2;
-  return { who: all ? '大家' : '对方', all };
+  return { who: all ? t('act.everyone') : t('act.peer'), all };
 }
 $('#act-prefix').addEventListener('input', updateActPreview);
 $('#act-suffix').addEventListener('input', updateActPreview);
 $('#act-send').onclick = () => {
   const a = customAction();
-  if (!a) return toast($('#act-prefix').value.trim() ? `最多 ${MAX_ACTION_LEN} 字` : '先填写动作，比如「拍了拍」');
+  if (!a) return toast($('#act-prefix').value.trim() ? t('act.tooLong', { max: MAX_ACTION_LEN }) : t('act.needInput'));
   if (sendAction(a)) { $('#act-prefix').value = ''; $('#act-suffix').value = ''; updateActPreview(); pops.actions.hidden = true; }
 };
 $('#act-save').onclick = () => {
   const a = customAction();
-  if (!a) return toast('先填写动作');
+  if (!a) return toast(t('act.needInput'));
   if (!prefs.customActions.some((c) => c.prefix === a.prefix && c.suffix === a.suffix)) {
     prefs.customActions.push(a); prefs.customActions = prefs.customActions.slice(-30); savePrefs(); renderActions();
   }
-  toast('已保存到常用动作');
+  toast(t('act.saved'));
 };
 [$('#act-prefix'), $('#act-suffix')].forEach((el) => el.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); $('#act-send').click(); }
 }));
 
 function sendAction(a) {
-  if (state.boss) { toast('Agent is busy — try again in a moment'); return false; }
-  if (Date.now() - state.lastAction < 1500) { toast('慢一点～'); return false; }
+  if (state.boss) { toast(t('toast.bossBusy')); return false; }
+  if (Date.now() - state.lastAction < 1500) { toast(t('act.slowDown')); return false; }
   const conv = state.active;
   const { who, all, peer } = actionTarget();
-  if (peer && !peer.online) { toast(`${who} 已离线`); return false; }
+  if (peer && !peer.online) { toast(t('toast.peerOffline', { who })); return false; }
   const m = { t: 'action', id: randomId(), ts: Date.now(), ...a, ...(all ? { all } : {}) };
-  if (!sendTo(conv, m)) { toast('Not connected'); return false; }
+  if (!sendTo(conv, m)) { toast(t('toast.notConnected')); return false; }
   state.lastAction = Date.now();
   state.seen.add(m.id);
   addItem({ id: m.id, conv, kind: 'action', mine: true, action: a, target: who });
@@ -1231,7 +1173,10 @@ function applyCfgUI() {
   $('#keep-val').textContent = state.cfg.keep;
   $('#ttl').value = String(state.cfg.ttl);
   $('#mview').value = String(state.cfg.mview);
-  $('#ctx-chip').textContent = `Context ${state.cfg.keep}${state.cfg.ttl ? ' · ' + state.cfg.ttl + 's' : ''}`;
+  $('#ctx-chip').textContent = t('composer.ctxChip', {
+    keep: state.cfg.keep,
+    ttl: state.cfg.ttl ? ' · ' + state.cfg.ttl + 's' : '',
+  });
 }
 function applyRunner() {
   $('#runner-wrap').hidden = !prefs.runner;
@@ -1265,91 +1210,48 @@ if (native.inTauri) document.body.classList.add('tauri');
 if (native.isMac) document.body.classList.add('mac'); // 只有 macOS 窗口有红绿灯，需要留位置
 
 /* ---------------- 弹层 ---------------- */
-const pops = { settings: $('#settings'), actions: $('#actions-pop') };
+const pops = { settings: $('#settings'), actions: $('#actions-pop'), model: $('#model-pop') };
 let relayPollTimer = null;
 function syncRelayPoll() {
   clearInterval(relayPollTimer);
   relayPollTimer = null;
   if (!pops.settings.hidden && native.canHost) {
-    refreshRelayStatus();
+    lan.refreshStatus();
     relayPollTimer = setInterval(() => {
       if (pops.settings.hidden) { clearInterval(relayPollTimer); relayPollTimer = null; return; }
-      refreshRelayStatus();
+      lan.refreshStatus();
     }, 2500);
   }
 }
 function togglePop(name) {
   for (const [k, el] of Object.entries(pops)) el.hidden = k === name ? !el.hidden : true;
   if (name === 'actions' && !pops.actions.hidden) { updateActPreview(); $('#act-prefix').focus(); }
+  if (name === 'model' && !pops.model.hidden) modelPicker.render();
   syncRelayPoll();
 }
 $('#settings-btn').onclick = () => togglePop('settings');
 $('#act-btn').onclick = () => togglePop('actions');
+$('#model-btn').onclick = () => togglePop('model');
 document.addEventListener('mousedown', (e) => {
-  if (e.target.closest('#settings-btn,#act-btn')) return;
+  if (e.target.closest('#settings-btn,#act-btn,#model-btn')) return;
   for (const el of Object.values(pops)) if (!el.hidden && !el.contains(e.target)) el.hidden = true;
   syncRelayPoll();
 });
 const anyPopOpen = () => Object.values(pops).some((el) => !el.hidden);
 const closePops = () => { Object.values(pops).forEach((el) => (el.hidden = true)); syncRelayPoll(); };
 
-async function setLocalRelay(wantOn) {
-  if (!native.canHost || relayBusy) return;
-  relayBusy = true;
-  renderRelayUI();
-  try {
-    if (wantOn) {
-      relayInfo = await native.relayStart({ name: state.name || prefs.name || '' });
-      renderRelayUI();
-      // 当前如果处于断线重连态，自动切到刚启动的本机服务
-      if (state.entered && state.session && (!state.ws || state.ws.readyState !== WebSocket.OPEN)) {
-        const old = state.ws;
-        state.ws = null;
-        old?.close();
-        state.wsUrl = toWsUrl(relayInfo.localAddr);
-        state.retry = 0;
-        renderRelayUI();
-        connect().catch(() => {});
-        toast(`已启动并切到本机服务：${relayInfo.shareAddr}`);
-      } else {
-        toast(`本机服务已启动：${relayInfo.shareAddr}`);
-      }
-    } else {
-      const wasUsingLocal = state.wsUrl && isLocalRelayHost(shortServer(state.wsUrl));
-      relayInfo = await native.relayStop();
-      renderRelayUI();
-      toast(wasUsingLocal ? '已停止本机服务（当前会话已断开）' : '已停止本机局域网服务');
-    }
-  } catch (err) {
-    toast(typeof err === 'string' ? err : err?.message || '操作本机服务失败');
-  } finally {
-    relayBusy = false;
-    renderRelayUI();
-  }
-}
-$('#relay-toggle').onchange = (e) => setLocalRelay(e.target.checked);
-
-async function shareableServerAddr() {
-  if (native.canHost) {
-    await refreshRelayStatus();
-    if (isLocalRelayHost(shortServer(state.wsUrl))) return relayInfo.shareAddr;
-  }
-  return shortServer(state.wsUrl);
-}
-
-async function hostCommand() {
-  if (!native.canHost) { toast('桌面客户端才支持开启本机服务'); return; }
-  await refreshRelayStatus();
-  if (!relayInfo.running) await setLocalRelay(true);
-  if (relayInfo.running) {
-    const ok = await copyText(relayInfo.shareAddr);
-    toast(ok ? `本机服务运行中（${relayInfo.clients} 连接），已复制 ${relayInfo.shareAddr}` : `本机服务：${relayInfo.shareAddr}`);
-  }
-}
+$('#relay-toggle').onchange = (e) =>
+  lan.setLocalRelayFromSettings(e.target.checked, {
+    shouldSwitchSession: () => state.entered && state.session && (!state.ws || state.ws.readyState !== WebSocket.OPEN),
+  });
 
 const wipeShortcutLabel = native.isMac ? '⌘K' : 'Ctrl+K';
-$('#wipe-btn').title = `清屏：隐藏当前屏幕所有消息（仅本地，${wipeShortcutLabel}）`;
-$('#wipe-kbd').textContent = wipeShortcutLabel;
+function renderKeysAndWipeUI() {
+  $('#wipe-btn').title = t('composer.wipeTitle', { shortcut: wipeShortcutLabel });
+  $('#keys-hint').innerHTML = t('set.keys', { wipeKey: wipeShortcutLabel });
+}
+renderKeysAndWipeUI();
+
 function triggerWipe() {
   if (state.boss) return;
   closePops();
@@ -1360,8 +1262,8 @@ function triggerWipe() {
 $('#wipe-btn').addEventListener('mousedown', (e) => e.preventDefault());
 $('#wipe-btn').onclick = () => triggerWipe();
 $('#share-btn').onclick = async () => {
-  const addr = await shareableServerAddr();
-  toast((await copyText(addr)) ? `已复制服务器地址 ${addr}（口令请单独告诉对方）` : addr);
+  const addr = await lan.shareableAddr(shortServer(state.wsUrl));
+  toast((await copyText(addr)) ? t('toast.shareCopied', { addr }) : addr);
 };
 // 清空当前会话（双方一起）
 const clearConv = () => { burnConv(state.active); sendTo(state.active, { t: 'burn' }); };
@@ -1385,7 +1287,7 @@ function leave() {
   setBoss(false);
   $('#main').hidden = true;
   $('#join').hidden = false;
-  refreshRelayStatus(true);
+  lan.refreshStatus(true);
   $('#pass').focus();
   fillSavedKey();
 }
@@ -1405,13 +1307,13 @@ $('#composer').onsubmit = (e) => {
   e.preventDefault();
   const text = input.value.trim();
   if (!text) return;
-  if (state.boss) { toast('Agent is busy — try again in a moment'); return; }
+  if (state.boss) { toast(t('toast.bossBusy')); return; }
   if (text.startsWith('/') && command(text)) { input.value = ''; autosize(); return; }
   const conv = state.active;
   const peer = convPeer(conv);
-  if (peer && !peer.online) { toast(`${labelOf(peer).text} 已离线，回来后才能收到`); return; }
+  if (peer && !peer.online) { toast(t('toast.peerOfflineMsg', { who: labelOf(peer).text })); return; }
   const msg = { t: 'msg', id: randomId(), text, ts: Date.now() };
-  if (!sendTo(conv, msg)) { toast('Not connected'); return; }
+  if (!sendTo(conv, msg)) { toast(t('toast.notConnected')); return; }
   state.seen.add(msg.id);
   addItem({ id: msg.id, conv, kind: 'msg', mine: true, text, ...recipients(conv) });
   input.value = ''; autosize();
@@ -1421,7 +1323,7 @@ function command(text) {
   const [cmd, arg] = text.split(/\s+/);
   switch (cmd) {
     case '/cls': wipeScreen(); return true;
-    case '/host': hostCommand(); return true;
+    case '/host': lan.hostCommand(() => state.entered && state.session && (!state.ws || state.ws.readyState !== WebSocket.OPEN)); return true;
     case '/clear': clearConv(); return true;
     case '/update': checkForUpdate({ manual: true }); return true;
     case '/keep': setCfg({ ...state.cfg, keep: arg }, true); return true;
@@ -1503,11 +1405,13 @@ const EYE = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke=
 const PLAY = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg>';
 
 function mediaHTML(it, sender) {
-  const label = `${it.mtype === 'image' ? 'image' : 'video'} · ${fmtSize(it.size)}${it.dur ? ' · ' + fmtDur(it.dur) : ''}`;
+  const mtypeLabel = it.mtype === 'image' ? t('media.image') : t('media.video');
+  const durStr = it.dur ? ' · ' + fmtDur(it.dur) : '';
+  const label = `${mtypeLabel} · ${fmtSize(it.size)}${durStr}`;
   const ar = Math.min(2, Math.max(0.6, it.w / it.h || 1.5)).toFixed(3);
   const head = it.mine
     ? ''
-    : `<div class="agent-head">${mark}<span class="tool">Attached ${label} <i>›</i></span>${whoHTML(sender)}</div>`;
+    : `<div class="agent-head">${mark}<span class="tool">${esc(t('media.attached', { type: mtypeLabel, size: fmtSize(it.size), dur: durStr }))} <i>›</i></span>${whoHTML(sender)}</div>`;
   return `${head}
     <div class="m-box" style="aspect-ratio:${ar}">
       ${it.thumb ? `<img class="m-thumb" src="${esc(it.thumb)}" draggable="false" alt="">` : '<div class="m-thumb m-noise"></div>'}
@@ -1515,8 +1419,8 @@ function mediaHTML(it, sender) {
       <div class="m-ttl"><i></i></div>
     </div>
     <div class="msg-foot ${it.mine ? '' : 'agent-foot'}">
-      ${it.mine ? `<span class="m-meta">${label}</span>` : ''}
-      ${CLEAR_BTN}
+      ${it.mine ? `<span class="m-meta">${esc(label)}</span>` : ''}
+      ${clearBtnHTML()}
     </div>`;
 }
 
@@ -1528,17 +1432,17 @@ function setMediaStatus(it, status, pct = 0) {
   const N = state.cfg.mview;
   const many = it.mine && it.total > 1; // 群聊多人接收时显示进度
   const views = {
-    receiving: pill(`<span class="spin"></span>Receiving ${pct}%`),
-    sending: pill(`<span class="spin"></span>Encrypting & sending ${pct}%`),
-    ready: `<button type="button" class="m-view">${it.mtype === 'video' ? PLAY : EYE}<span>${it.mtype === 'video' ? `Play · 结束后 ${N}s 焚毁` : `View · ${N}s`}</span></button>`,
-    opening: pill('<span class="spin"></span>Decrypting…'),
+    receiving: pill(`<span class="spin"></span>${esc(t('media.receiving', { pct }))}`),
+    sending: pill(`<span class="spin"></span>${esc(t('media.sending', { pct }))}`),
+    ready: `<button type="button" class="m-view">${it.mtype === 'video' ? PLAY : EYE}<span>${esc(it.mtype === 'video' ? t('media.playBtn', { n: N }) : t('media.viewBtn', { n: N }))}</span></button>`,
+    opening: pill(`<span class="spin"></span>${esc(t('media.opening'))}`),
     viewing: '',
-    sent: pill('Sent'),
-    delivered: pill(many ? `Delivered ${it.recvBy?.size ?? 0}/${it.total} · 等待查看` : 'Delivered · 等待对方查看'),
-    partview: pill(`Viewed ${it.viewBy?.size ?? 0}/${it.total}`),
-    viewed: pill(many ? 'Viewed · 所有人都已查看' : 'Viewed · 对方已查看', 'ok'),
-    undelivered: pill('对方未接收 · 可能需要更新客户端', 'bad'),
-    failed: pill('Transfer failed', 'bad'),
+    sent: pill(esc(t('media.sent'))),
+    delivered: pill(esc(many ? t('media.deliveredMany', { n: it.recvBy?.size ?? 0, total: it.total }) : t('media.deliveredOne'))),
+    partview: pill(esc(t('media.partview', { n: it.viewBy?.size ?? 0, total: it.total }))),
+    viewed: pill(esc(many ? t('media.viewedMany') : t('media.viewedOne')), 'ok'),
+    undelivered: pill(esc(t('media.undelivered')), 'bad'),
+    failed: pill(esc(t('media.failed')), 'bad'),
   };
   over.innerHTML = views[status] ?? '';
 }
@@ -1553,7 +1457,7 @@ function onMediaMeta(m, p, conv) {
   if (!Number.isInteger(m.size) || m.size <= 0 || m.size > limit) return;
   if (m.chunks !== Math.ceil(m.size / CHUNK)) return;
   if (!fresh(m)) return;
-  if (inflightBytes() + m.size > MAX_INFLIGHT) { sys('Attachment skipped · memory limit'); return; }
+  if (inflightBytes() + m.size > MAX_INFLIGHT) { sys(esc(t('msg.sysSkipMedia'))); return; }
   const it = addItem({
     id: m.id, conv, kind: 'media', mine: false, cid: p.cid,
     mtype, mime: m.mime, size: m.size, chunks: m.chunks,
@@ -1601,21 +1505,22 @@ async function sendFiles(files) {
 }
 
 async function sendMedia(file) {
-  if (state.boss) return toast('Agent is busy — try again in a moment');
-  if (!state.serverMedia) return toast('服务器版本过旧，不支持附件，请更新 server 目录');
+  if (state.boss) return toast(t('toast.bossBusy'));
+  if (!state.serverMedia) return toast(t('toast.oldServerMedia'));
   const conv = state.active;
   const peer = convPeer(conv);
   if (peer) {
     const who = labelOf(peer).text;
-    if (!peer.online) return toast(`${who} 已离线 · 附件需要对方在线才能接收`);
-    if (!hasCap(peer, 'media')) return toast(`${who} 的客户端版本过旧，收不到图片 / 视频，请先更新 Agent.app`);
-    if (!state.serverDirect) return toast('服务器版本过旧，私聊不能发图片 / 视频，请更新 server 目录后重启服务器');
+    if (!peer.online) return toast(t('toast.peerOfflineMedia', { who }));
+    if (!hasCap(peer, 'media')) return toast(t('toast.peerOldMedia', { who }));
+    if (!state.serverDirect) return toast(t('toast.oldServerDmMedia'));
   } else {
     const others = onlineMembers();
-    if (!others.length) return toast('其他人都不在线 · 附件需要对方在线才能接收');
+    if (!others.length) return toast(t('toast.nobodyOnlineMedia'));
+    const sep = getLang() === 'en' ? ', ' : '、';
     const old = others.filter((p) => !hasCap(p, 'media')).map((p) => labelOf(p).text);
-    if (old.length === others.length) return toast(`${old.join('、')} 的客户端版本过旧，收不到图片 / 视频，请先更新 Agent.app`);
-    if (old.length) toast(`${old.join('、')} 的客户端版本过旧，将收不到这个附件`);
+    if (old.length === others.length) return toast(t('toast.peerOldMedia', { who: old.join(sep) }));
+    if (old.length) toast(t('toast.someOldMedia', { names: old.join(sep) }));
   }
   let prep;
   try { prep = await prepareFile(file); } catch (e) { return toast(e.message); }
@@ -1630,7 +1535,7 @@ async function sendMedia(file) {
   // 私聊：分块前加上目标连接 ID，服务器只转发给对方
   const conn = peer?.conn;
   const route = conn ? hexToBytes(conn) : null;
-  if (!sendTo(conv, meta)) { bytes.fill(0); return toast('Not connected'); }
+  if (!sendTo(conv, meta)) { bytes.fill(0); return toast(t('toast.notConnected')); }
   state.seen.add(id);
   const it = addItem({
     id, conv, kind: 'media', mine: true, ...meta, status: 'sending',
@@ -1844,8 +1749,8 @@ function renderRecents() {
   const dms = dmList();
   const defs = dmDefaults(dms);
   const L = labels();
-  const edit = '<b class="r-badge" hidden></b><button class="r-edit" title="重命名" tabindex="-1">✎</button>';
-  const row = (attrs, cls, name, extra = '') => `<li class="${cls}" ${attrs} title="双击重命名"><span class="r-name">${esc(name)}</span>${extra}${edit}</li>`;
+  const edit = `<b class="r-badge" hidden></b><button class="r-edit" title="${esc(t('side.rename'))}" tabindex="-1">✎</button>`;
+  const row = (attrs, cls, name, extra = '') => `<li class="${cls}" ${attrs} title="${esc(t('side.dblclickRename'))}"><span class="r-name">${esc(name)}</span>${extra}${edit}</li>`;
   $('#recents').innerHTML = [
     row(`data-conv="${GROUP}" data-i="0"`, '', names[0] || recentDefaults[0]),
     ...dms.map((p) => {
@@ -1853,8 +1758,8 @@ function renderRecents() {
       const tag = `<span class="r-tag" style="--c:${l.color}"><i></i>${esc(l.text)}</span>`;
       return row(`data-conv="${dmConv(p.cid)}" data-dm="${esc(p.cid)}"`, `dm${p.online ? '' : ' offline'}`, prefs.dmNames[dmKey(p)] || defs.get(p.cid), tag);
     }),
-    ...recentDefaults.slice(1, 1 + fakeCount(dms.length)).map((t, j) =>
-      row(`data-i="${j + 1}"`, 'fake', names[j + 1] || t, j === 1 ? '<span class="spin sm"></span>' : '')),
+    ...recentDefaults.slice(1, 1 + fakeCount(dms.length)).map((tItem, j) =>
+      row(`data-i="${j + 1}"`, 'fake', names[j + 1] || tItem, j === 1 ? '<span class="spin sm"></span>' : '')),
   ].join('');
   updateBadges();
   setBoss(state.boss); // 同步高亮和标题
@@ -1880,13 +1785,14 @@ function renderHeader() {
   const peer = convPeer(state.active);
   if (state.boss || !state.entered) { el.hidden = true; return; }
   if (peer) {
-    el.innerHTML = `${whoHTML(peer, 'who')}${peer.online ? '' : '<span class="off">offline</span>'}`;
-    el.title = '私聊：只有你们两个人能看到';
+    el.innerHTML = `${whoHTML(peer, 'who')}${peer.online ? '' : `<span class="off">${esc(t('top.dmOffline'))}</span>`}`;
+    el.title = t('top.dmTitle');
   } else {
     const on = onlineMembers().sort((a, b) => a.seq - b.seq);
     const shown = on.slice(0, 3).map((p) => whoHTML(p, 'who')).join('');
-    el.innerHTML = on.length ? `${shown}${on.length > 3 ? `<span class="off">+${on.length - 3}</span>` : ''}` : '<span class="off">waiting for peers</span>';
-    el.title = on.length ? `群聊 · ${on.length + 1} 人在线：你、${on.map((p) => labelOf(p).text).join('、')}` : '';
+    el.innerHTML = on.length ? `${shown}${on.length > 3 ? `<span class="off">+${on.length - 3}</span>` : ''}` : `<span class="off">${esc(t('top.waitingPeers'))}</span>`;
+    const sep = getLang() === 'en' ? ', ' : '、';
+    el.title = on.length ? t('top.groupTitle', { n: on.length + 1, names: on.map((p) => labelOf(p).text).join(sep) }) : '';
   }
   el.hidden = false;
 }
@@ -1963,7 +1869,13 @@ function renderPersona() {
   $('#persona').value = prefs.persona in PERSONAS ? prefs.persona : 'dev';
 }
 
-$('#persona').innerHTML = Object.entries(PERSONAS).map(([k, p]) => `<option value="${k}">${esc(p.label)}</option>`).join('');
+function renderPersonaOptions() {
+  $('#persona').innerHTML = Object.entries(PERSONAS)
+    .map(([k, p]) => `<option value="${k}">${esc(personaLabel(p))}</option>`)
+    .join('');
+  $('#persona').value = prefs.persona in PERSONAS ? prefs.persona : 'dev';
+}
+renderPersonaOptions();
 $('#persona').onchange = (e) => { prefs.persona = e.target.value; savePrefs(); renderPersona(); };
 
 // 成员显示方式：真名 / 代号（只影响自己的界面）
@@ -1978,8 +1890,56 @@ $('#recents-reset').onclick = () => {
   prefs.dmNames = {};
   savePrefs();
   renderPersona();
-  toast('侧栏名称已恢复默认');
+  toast(t('set.recentsResetToast'));
 };
+
+/* ---------------- 界面语言切换（默认中文，支持实时切换中 / 英） ---------------- */
+function syncLangButtons() {
+  const cur = getLang();
+  document.querySelectorAll('#join-lang-seg button, #lang-seg button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.lang === cur);
+  });
+}
+function applyLanguage(lang, persist = false) {
+  setLang(lang);
+  if (persist) {
+    prefs.lang = getLang();
+    savePrefs();
+  }
+  applyDomI18n();
+  syncLangButtons();
+  renderRememberTexts();
+  renderKeysAndWipeUI();
+  renderPersonaOptions();
+  modelPicker.render();
+  lan.renderUI();
+  lan.syncServerOptions();
+  renderUpdateBadges();
+  if (!$('#upd-modal').hidden) renderUpdModal();
+  if (state.entered) {
+    $('#build-time').textContent = t('set.buildTime', { time: __BUILD_TIME__ });
+    applyCfgUI();
+    renderStatusText();
+    renderHeader();
+    renderRecents();
+    renderActions();
+    if (!pops.actions.hidden) updateActPreview();
+    runner.refreshLang();
+    for (const it of state.items) {
+      if (it.mine && it.kind === 'msg') renderReceipt(it);
+      if (it.kind === 'media' && it.status !== 'viewing') setMediaStatus(it, it.status, 0);
+      const clr = it.el?.querySelector('.msg-clear');
+      if (clr) clr.title = t('msg.clearTitle');
+    }
+    document.querySelectorAll('.compact').forEach((el) => { el.textContent = t('msg.compacted'); });
+  } else if ($('#server').value.trim()) {
+    checkServer($('#server').value.trim());
+  }
+}
+document.querySelectorAll('#join-lang-seg button, #lang-seg button').forEach((b) => {
+  b.onclick = () => applyLanguage(b.dataset.lang, true);
+});
+applyLanguage(prefs.lang || DEFAULT_LANG, false);
 
 /* ================================================================
  *  版本检测与自动下载重启更新（GitHub Releases）
@@ -1993,7 +1953,7 @@ function formatNotes(md) {
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith('|---') && !l.startsWith('```'));
-  if (!lines.length) return '<p class="muted">常规体验优化与问题修复。</p>';
+  if (!lines.length) return `<p class="muted">${esc(t('upd.defaultNotes'))}</p>`;
   return lines.slice(0, 40).map((line) => {
     const safe = esc(line).replace(/`([^`]+)`/g, '<code>$1</code>');
     if (/^#{1,3}\s+/.test(line)) return `<div class="upd-h">${safe.replace(/^#{1,3}\s+/, '')}</div>`;
@@ -2009,16 +1969,16 @@ function renderUpdateBadges() {
 
   const joinBtn = $('#join-upd');
   joinBtn.hidden = !has;
-  if (has) joinBtn.textContent = ready ? `↻ 重启升级 v${ver}` : `↑ 发现新版本 v${ver}`;
+  if (has) joinBtn.textContent = ready ? t('upd.joinRestart', { ver }) : t('upd.joinFound', { ver });
 
   const chip = $('#upd-chip');
   chip.hidden = !has || state.boss;
   chip.classList.toggle('ready', ready);
-  if (has) chip.textContent = ready ? `↻ Restart v${ver}` : `↑ v${ver}`;
+  if (has) chip.textContent = ready ? t('upd.chipRestart', { ver }) : t('upd.chipFound', { ver });
 
   const checkBtn = $('#check-upd-btn');
   checkBtn.disabled = updState.checking;
-  checkBtn.textContent = updState.checking ? '…' : has ? `v${ver} ↑` : 'Check';
+  checkBtn.textContent = updState.checking ? '…' : has ? `v${ver} ↑` : t('set.checkUpd');
   checkBtn.classList.toggle('upd-has', has);
 }
 
@@ -2026,7 +1986,7 @@ function renderUpdModal() {
   const info = updState.info;
   if (!info) return;
   const sizeStr = info.assetSize ? ` · ${fmtSize(info.assetSize)}` : '';
-  const modeHint = info.canAutoUpdate ? '' : ' · 当前运行模式需手动下载安装';
+  const modeHint = info.canAutoUpdate ? '' : t('upd.manualHint');
   $('#upd-ver').textContent = `v${APP_VERSION} → v${info.latestVersion}${sizeStr}${modeHint}`;
   $('#upd-notes').innerHTML = formatNotes(info.notes);
 
@@ -2035,19 +1995,19 @@ function renderUpdModal() {
   $('#upd-prog').hidden = updState.phase === 'idle';
   if (updState.phase === 'downloading') {
     const dl = updState.total ? ` · ${fmtSize(updState.downloaded)} / ${fmtSize(updState.total)}` : '';
-    $('#upd-phase').textContent = `正在下载安装包${dl}`;
+    $('#upd-phase').textContent = t('upd.downloading', { dl });
     $('#upd-pct').textContent = `${updState.pct}%`;
     $('#upd-bar-fill').style.width = `${updState.pct}%`;
   } else if (updState.phase === 'verifying') {
-    $('#upd-phase').textContent = '正在校验 SHA-256 完整性…';
+    $('#upd-phase').textContent = t('upd.verifying');
     $('#upd-pct').textContent = '100%';
     $('#upd-bar-fill').style.width = '100%';
   } else if (updState.phase === 'installing') {
-    $('#upd-phase').textContent = '正在替换安装新版本…';
+    $('#upd-phase').textContent = t('upd.installing');
     $('#upd-pct').textContent = '100%';
     $('#upd-bar-fill').style.width = '100%';
   } else if (ready) {
-    $('#upd-phase').textContent = '新版本已就绪，正在重启应用…';
+    $('#upd-phase').textContent = t('upd.ready');
     $('#upd-pct').textContent = '✓';
     $('#upd-bar-fill').style.width = '100%';
   }
@@ -2056,16 +2016,16 @@ function renderUpdModal() {
   errEl.hidden = !updState.err;
   errEl.textContent = updState.err;
 
-  $('#upd-cancel').textContent = busy ? '取消下载' : '稍后';
+  $('#upd-cancel').textContent = busy ? t('upd.cancelDl') : t('upd.later');
   const act = $('#upd-act');
   act.disabled = busy;
   act.textContent = ready
-    ? '立即重启'
+    ? t('upd.actRestart')
     : busy
-      ? '更新中…'
+      ? t('upd.actBusy')
       : info.canAutoUpdate
-        ? '更新并重启'
-        : '前往下载';
+        ? t('upd.actUpdate')
+        : t('upd.actManual');
 }
 
 function openUpdModal() {
@@ -2089,11 +2049,11 @@ async function checkForUpdate({ manual = false } = {}) {
     renderUpdateBadges();
     if (manual) {
       if (info.hasUpdate) openUpdModal();
-      else toast(`当前已是最新版本 v${APP_VERSION}`);
+      else toast(t('toast.latestVer', { ver: APP_VERSION }));
     }
   } catch (err) {
     if (manual) {
-      const msg = typeof err === 'string' ? err : err?.message || '检查更新失败';
+      const msg = typeof err === 'string' ? err : err?.message || t('toast.checkUpdErr');
       if (state.entered) toast(msg);
       else showJoinError(msg);
     }

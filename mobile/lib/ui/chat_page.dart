@@ -69,7 +69,7 @@ class _ChatPageState extends State<ChatPage> with SingleTickerProviderStateMixin
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('允许在后台运行'),
-        content: const Text('Agent 会在通知栏常驻一条提示，切到后台、锁屏后也保持在线，别人发的消息照常能收到。\n\n部分手机会限制后台应用，建议在接下来的系统弹窗里选择「允许」。之后可以在设置里关闭。'),
+        content: const Text('ChatBuddy 会在通知栏常驻一条提示，切到后台、锁屏后也保持在线，别人发的消息照常能收到。\n\n部分手机会限制后台应用，建议在接下来的系统弹窗里选择「允许」。之后可以在设置里关闭。'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('以后再说')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('去允许')),

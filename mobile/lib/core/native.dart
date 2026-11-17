@@ -128,7 +128,7 @@ class Native {
     try {
       await _notifier.show(
         id: _msgNotifyId,
-        title: 'Agent',
+        title: 'ChatBuddy',
         body: body,
         notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(

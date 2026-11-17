@@ -1,4 +1,4 @@
-# Agent 移动端（Flutter）
+# ChatBuddy 移动端（Flutter）
 
 手机上的聊天客户端，和桌面端在同一个房间里互通（同一个服务器 + 同一个口令）。只做正常聊天，没有桌面端的伪装界面；也不能自己开服务器，只连接已有的服务器。
 
@@ -41,7 +41,7 @@ flutter test                   # 加密交叉验证 + 端到端互通测试（�
 | PR 改了 `mobile/` | 只跑检查和测试 |
 | `npm run release` 推送 v* tag | 正式 Release 里附带 APK |
 
-打完后手机浏览器打开 **`https://github.com/mrxf/channel-chat/releases/tag/android-nightly`**，直接下载 `Agent_<版本>-dev.<序号>_Android_arm64.apk` 安装。测试版每次覆盖，只保留最新一份，桌面端的自动更新不会把它当成新版本。每次运行的 Summary 里也有文件大小和签名信息，Artifacts 里有 zip 包。
+打完后手机浏览器打开 **`https://github.com/mrxf/channel-chat/releases/tag/android-nightly`**，直接下载 `ChatBuddy_<版本>-dev.<序号>_Android_arm64.apk` 安装。测试版每次覆盖，只保留最新一份，桌面端的自动更新不会把它当成新版本。每次运行的 Summary 里也有文件大小和签名信息，Artifacts 里有 zip 包。
 
 ### 签名（第一次用之前做一次）
 
@@ -74,7 +74,7 @@ lib/
 
 ## 已知限制
 
-- 小米、华为、OPPO、vivo 等系统有自己的后台管理，除了允许「不受电池优化限制」，还要在应用详情里打开「自启动 / 允许后台活动」，并在最近任务里锁定 Agent，否则长时间锁屏后仍可能被断开（设置 → 后台 → 系统后台管理）。
+- 小米、华为、OPPO、vivo 等系统有自己的后台管理，除了允许「不受电池优化限制」，还要在应用详情里打开「自启动 / 允许后台活动」，并在最近任务里锁定 ChatBuddy，否则长时间锁屏后仍可能被断开（设置 → 后台 → 系统后台管理）。
 - 断线期间别人发的消息收不到（服务器不暂存）；回到前台会立即重连。
 - iOS 不允许 App 在后台保持连接，切到后台后会断开，回到前台自动重连。
 - 视频发送没有缩略图（对方看到的是占位底色）。

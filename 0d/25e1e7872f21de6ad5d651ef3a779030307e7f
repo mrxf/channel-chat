@@ -1,0 +1,32 @@
+mobile/lib/core/net.dart
+  h_595af853e379f3 27
+mobile/lib/ui/login_page.dart
+  h_595af853e379f3 69
+server/relay.js
+  h_595af853e379f3 92-96
+src-tauri/src/discovery.rs
+  h_595af853e379f3 41-73
+src-tauri/src/lib.rs
+  h_595af853e379f3 60
+src-tauri/src/relay.rs
+  h_595af853e379f3 638-646
+src/i18n.js
+  h_595af853e379f3 238,512
+src/lan.js
+  h_595af853e379f3 318
+src/main.js
+  h_595af853e379f3 293,296,310,491-553,556-567,569-577,580-600,602-603,607-608,612-614,622-623,626,633,658,662-691,695-705,707-713,1423-1424,1433-1438,1547-1552
+src/native.js
+  h_595af853e379f3 145-157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "0d25e1e7872f21de6ad5d651ef3a779030307e7f",
+  "prompts": {},
+  "humans": {
+    "h_595af853e379f3": {
+      "author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

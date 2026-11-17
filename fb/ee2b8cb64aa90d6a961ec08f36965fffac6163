@@ -1,0 +1,16 @@
+src-tauri/src/updater.rs
+  h_595af853e379f3 104-225,324-334,554,556-569,571-614,616-627,629,631-636,674-682
+src/main.js
+  h_595af853e379f3 53-68,211-213,327-328,330,354-355,441,449,454,459-472,1157-1160,1408-1409,1444-1465,1896,1900,1904-1905,1922-1926,2310-2312
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "fbee2b8cb64aa90d6a961ec08f36965fffac6163",
+  "prompts": {},
+  "humans": {
+    "h_595af853e379f3": {
+      "author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

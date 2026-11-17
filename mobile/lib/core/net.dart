@@ -24,7 +24,7 @@ Uri toWsUrl(String input) {
   if (scheme == 'http') scheme = 'ws';
   if (scheme == 'https') scheme = 'wss';
   if (scheme != 'ws' && scheme != 'wss') throw const FormatException('不支持的协议');
-  final port = u.hasPort ? u.port : (scheme == 'ws' ? defaultPort : 443);
+  final port = u.hasPort ? u.port : (scheme == 'ws' ? defaultPort : null);
   return Uri(scheme: scheme, host: u.host, port: port, path: '/ws');
 }
 

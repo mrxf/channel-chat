@@ -142,6 +142,19 @@ export const native = {
     } catch { /* ignore */ }
   },
 
+  /** 服务端在线探测：Tauri 走原生 curl（强制 HTTP/1.1，避免污染 macOS WebKit 的 HTTP/2 会话缓存导致 wss 握手被拒） */
+  async healthCheck(url, timeoutMs = 3000) {
+    if (inTauri) return JSON.parse(await invoke('health_check', { url, timeoutMs }));
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, { signal: ctl.signal, cache: 'no-store' });
+      return await r.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+
   /** 检查 GitHub Releases 新版本；Tauri 走原生命令，浏览器调试走 fetch */
   async checkUpdate(currentVersion) {
     if (inTauri) return await invoke('update_check');

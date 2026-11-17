@@ -290,9 +290,10 @@ const lan = createLanModule({
   getWsHost: () => (state.wsUrl ? shortServer(state.wsUrl) : ''),
   getServerName: () => state.serverName,
   onReconnectToLocal: (localAddr) => {
+    clearReconnectTimers();
     const old = state.ws;
     state.ws = null;
-    old?.close();
+    try { old?.close(); } catch { /* ignore */ }
     state.wsUrl = toWsUrl(localAddr);
     state.retry = 0;
     lan.renderUI();
@@ -306,9 +307,7 @@ async function checkServer(val) {
   try { wsUrl = toWsUrl(val); url = httpUrl(wsUrl, '/health'); } catch (e) { setServerHint(e.message, 'bad'); return false; }
   setServerHint(t('join.checking'));
   try {
-    const ctl = new AbortController();
-    setTimeout(() => ctl.abort(), 3000);
-    const d = await (await fetch(url, { signal: ctl.signal, cache: 'no-store' })).json();
+    const d = await native.healthCheck(url, 3000);
     if (d?.app !== 'agent-relay') throw new Error();
     if (seq === probeSeq) {
       if (lan.isLocalRelayHost(shortServer(wsUrl))) {
@@ -489,21 +488,130 @@ function enterMain() {
 }
 
 /* ---------------- 网络 ---------------- */
+let connGen = 0;
+let reconnectTimer = null;
+let lastTrafficAt = 0;
+let lastPingAt = 0;
+let pingSupport = false; // 收到过服务器的 pong 即开启超时强断检测（兼容未升级的旧服务器）
+
+function clearReconnectTimers() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+}
+
+function scheduleReconnect(gen) {
+  clearReconnectTimers();
+  if (!state.session || !state.entered || gen !== connGen) return;
+  const delay = Math.min(8000, 500 * 2 ** Math.min(state.retry++, 6));
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    if (state.session && state.entered && gen === connGen) connect().catch(() => {});
+  }, delay);
+}
+
+function dropSocketAndReconnect(gen = connGen, immediate = false) {
+  const cur = state.ws;
+  state.ws = null;
+  if (cur) {
+    cur.onmessage = null;
+    cur.onclose = null;
+    cur.onerror = null;
+    try { cur.close(); } catch { /* ignore */ }
+  }
+  if (!state.session || !state.entered) return;
+  setStatusKey('reconnecting', 'off');
+  markAllOffline();
+  if (immediate) {
+    state.retry = 0;
+    clearReconnectTimers();
+    connect().catch(() => {});
+  } else {
+    scheduleReconnect(gen);
+  }
+}
+
+/** 唤醒 / 获焦 / 网络恢复 / 发送受阻时：立即检查并修复断连或半开假死 */
+function recoverConnection(force = false) {
+  if (!state.entered || !state.session) return;
+  const ws = state.ws;
+  if (!ws || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+    if (force || reconnectTimer || lastStatusKey === 'online') {
+      dropSocketAndReconnect(++connGen, true);
+    }
+    return;
+  }
+  if (ws.readyState === WebSocket.OPEN) {
+    // 立即发一帧应用层探活，若连接实际已半开假死可加速内核感知 RST/EOF
+    try {
+      lastPingAt = Date.now();
+      ws.send(JSON.stringify({ type: 'ping' }));
+    } catch {
+      dropSocketAndReconnect(++connGen, true);
+    }
+  }
+}
+
 function connect(first = false) {
   return new Promise((resolve, reject) => {
-    setStatusKey('connecting', 'wait');
+    const gen = ++connGen;
+    clearReconnectTimers();
+    const prev = state.ws;
+    state.ws = null;
+    if (prev) {
+      prev.onmessage = null;
+      prev.onclose = null;
+      prev.onerror = null;
+      try { prev.close(); } catch { /* ignore */ }
+    }
+
+    setStatusKey(first ? 'connecting' : 'reconnecting', first ? 'wait' : 'off');
     let done = false;
-    const ws = new WebSocket(state.wsUrl);
+    let joined = false;
+    let ws;
+    try {
+      ws = new WebSocket(state.wsUrl);
+    } catch (err) {
+      if (first) return reject(err);
+      scheduleReconnect(gen);
+      return resolve();
+    }
     ws.binaryType = 'arraybuffer';
     state.ws = ws;
+    pingSupport = false;
+    lastPingAt = 0;
+
+    const failOrRetry = (errMsg) => {
+      clearTimeout(timeout);
+      if (gen !== connGen) return;
+      if (state.ws === ws) state.ws = null;
+      ws.onmessage = null;
+      ws.onclose = null;
+      ws.onerror = null;
+      try { ws.close(); } catch { /* ignore */ }
+      if (!done) {
+        done = true;
+        reject(new Error(errMsg));
+      }
+      if (!state.session || (first && !state.entered)) return;
+      setStatusKey('reconnecting', 'off');
+      markAllOffline();
+      scheduleReconnect(gen);
+    };
+
     const timeout = setTimeout(() => {
-      if (!done) { done = true; reject(new Error(t('join.errTimeout'))); ws.close(); }
+      // 关键修复：WebKit 在系统代理挂起 CONNECTING socket 时 ws.close() 可能迟迟不触发 onclose，必须主动接管重连
+      if (!joined) failOrRetry(t('join.errTimeout'));
     }, 6000);
 
     ws.onmessage = (ev) => {
+      if (gen !== connGen || state.ws !== ws) return;
+      lastTrafficAt = Date.now();
       if (ev.data instanceof ArrayBuffer) { onChunk(new Uint8Array(ev.data)); return; }
       let m; try { m = JSON.parse(ev.data); } catch { return; }
       switch (m.type) {
+        case 'pong':
+          pingSupport = true;
+          break;
         case 'welcome':
           state.serverName = typeof m.name === 'string' ? m.name.slice(0, 40) : '';
           state.serverMedia = Array.isArray(m.features) && m.features.includes('media');
@@ -511,14 +619,18 @@ function connect(first = false) {
           state.serverActions = (Array.isArray(m.actions) ? m.actions : []).map(sanitizeAction).filter(Boolean).slice(0, 50);
           if (state.entered) { renderActions(); lan.renderUI(); }
           ws.send(JSON.stringify({ type: 'join', room: state.session.roomId }));
+          // 顺手探测一次服务端是否支持应用层 ping/pong
+          ws.send(JSON.stringify({ type: 'ping' }));
           break;
         case 'joined':
+          joined = true;
           state.myId = m.id; state.retry = 0;
           markAllOffline(); // 自己重连：等其他人回 hi 再恢复在线；私聊记录保留
           updateCount(m.count);
           send({ t: 'hello', caps: CAPS, v: APP_VERSION });
           // 重连后几秒内没回来的人视为已离线：不再等他们的旧消息回执，之后再进来也正常提示 connected
           setTimeout(() => {
+            if (gen !== connGen) return;
             for (const p of state.members.values()) {
               p.quiet = false;
               if (!p.online) dropFromNeed(p.cid);
@@ -543,25 +655,62 @@ function connect(first = false) {
         }
       }
     };
-    ws.onclose = () => {
-      clearTimeout(timeout);
-      if (!done) { done = true; reject(new Error(t('join.errConnect'))); }
-      if (state.ws !== ws || !state.session || (first && !state.entered)) return;
-      setStatusKey('reconnecting', 'off');
-      markAllOffline();
-      const delay = Math.min(8000, 500 * 2 ** state.retry++);
-      setTimeout(() => { if (state.session && state.ws === ws) connect().catch(() => {}); }, delay);
-    };
+    ws.onclose = () => failOrRetry(t('join.errConnect'));
   });
 }
+
+// 周期性连接健康巡检：同步真实 socket 状态（杜绝「显示 N 人在线但实际已断连」的视觉假象）+ 代理半开连接保活
+setInterval(() => {
+  if (!state.entered || !state.session) return;
+  const ws = state.ws;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    if (lastStatusKey === 'online') {
+      setStatusKey('reconnecting', 'off');
+      markAllOffline();
+    }
+    if ((!ws || ws.readyState === WebSocket.CLOSED) && !reconnectTimer) {
+      recoverConnection(true);
+    }
+    return;
+  }
+  const now = Date.now();
+  if (pingSupport && lastPingAt > lastTrafficAt && now - lastPingAt > 10000) {
+    // 发出 ping 超过 10 秒未收到任何下行包，判定 TCP 半开假死，立即重连
+    dropSocketAndReconnect(++connGen, true);
+    return;
+  }
+  if (now - lastTrafficAt >= 15000 && now - lastPingAt >= 15000) {
+    try {
+      lastPingAt = now;
+      ws.send(JSON.stringify({ type: 'ping' }));
+    } catch {
+      dropSocketAndReconnect(++connGen, true);
+    }
+  }
+}, 3000);
 
 /** 发送加密消息。to = 目标连接 ID（只发给这个人），不填则发给房间里所有人 */
 function send(obj, to) {
   const ws = state.ws;
-  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    // 一旦发送时发现底层连接并非 OPEN，立即同步 UI 为重连态并拉起重连，绝不留存假在线状态
+    if (state.entered && state.session) {
+      if (lastStatusKey === 'online') {
+        setStatusKey('reconnecting', 'off');
+        markAllOffline();
+      }
+      if (!ws || ws.readyState !== WebSocket.CONNECTING) recoverConnection(true);
+    }
+    return false;
+  }
   const inner = { name: state.name, cid: state.cid, ...obj };
-  ws.send(JSON.stringify({ type: 'relay', data: seal(state.session, inner), ...(to ? { to } : {}) }));
-  return true;
+  try {
+    ws.send(JSON.stringify({ type: 'relay', data: seal(state.session, inner), ...(to ? { to } : {}) }));
+    return true;
+  } catch {
+    dropSocketAndReconnect(++connGen, true);
+    return false;
+  }
 }
 
 /**
@@ -1271,6 +1420,8 @@ $('#clear-btn').onclick = () => { clearConv(); closePops(); };
 $('#leave-btn').onclick = leave;
 
 function leave() {
+  connGen++;
+  clearReconnectTimers();
   const ws = state.ws;
   burnAll();
   Object.assign(state, {
@@ -1279,7 +1430,12 @@ function leave() {
   });
   for (const k of ['members', 'conns', 'seen', 'incoming', 'receipts', 'acked', 'compacted']) state[k].clear();
   native.mediaClear();
-  ws?.close();
+  if (ws) {
+    ws.onmessage = null;
+    ws.onclose = null;
+    ws.onerror = null;
+    try { ws.close(); } catch { /* ignore */ }
+  }
   runner.stop();
   native.setUnread(0); state.unread = 0;
   $('#threads').innerHTML = '';
@@ -1388,7 +1544,12 @@ $('#new-task').onclick = () => setBoss(true);
 $('#collapse').onclick = () => document.body.classList.add('side-collapsed');
 $('#expand').onclick = () => document.body.classList.remove('side-collapsed');
 window.addEventListener('blur', () => { if (prefs.blurHide && state.entered) setBoss(true); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && prefs.blurHide && state.entered) setBoss(true); });
+window.addEventListener('focus', () => { if (state.entered) recoverConnection(false); });
+window.addEventListener('online', () => { if (state.entered) recoverConnection(true); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && prefs.blurHide && state.entered) setBoss(true);
+  else if (!document.hidden && state.entered) recoverConnection(false);
+});
 window.addEventListener('pagehide', () => { burnAll(); native.mediaClear(); state.session = null; });
 
 /* ================================================================

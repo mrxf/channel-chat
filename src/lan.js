@@ -315,7 +315,7 @@ export function createLanModule({
       }
       if (!saved) setServerHint(t('join.searchingLan'));
       const [list, ok] = await Promise.all([native.discover(1500), saved ? checkServer(saved) : false]);
-      if (!applyFound(list, !ok) && !saved) {
+      if (!applyFound(list, !saved && !ok) && !saved) {
         setServerHint(t('join.autoNotFound'));
       }
     })();

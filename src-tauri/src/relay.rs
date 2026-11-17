@@ -635,6 +635,15 @@ impl Hub {
             return;
         };
 
+        if msg_type == "ping" {
+            let pong_frame = encode_ws_frame(0x1, br#"{"type":"pong"}"#);
+            let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(me) = g.clients.get(&conn_num) {
+                me.try_enqueue(pong_frame, false);
+            }
+            return;
+        }
+
         if msg_type == "join" {
             let Some(room) = v.get("room").and_then(|r| r.as_str()) else {
                 return;

@@ -66,7 +66,7 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
     final list = results[0] as List<FoundServer>;
     final ok = results[1] as bool;
-    if (!_applyFound(list, force: !ok) && saved.isEmpty) _setHint('没有自动发现服务器 · 点雷达图标再找一次，或手动输入');
+    if (!_applyFound(list, force: saved.isEmpty && !ok) && saved.isEmpty) _setHint('没有自动发现服务器 · 点雷达图标再找一次，或手动输入');
   }
 
   @override

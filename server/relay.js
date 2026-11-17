@@ -89,6 +89,11 @@ export function attachRelay(httpServer, { debug = false, path = '/ws', getWelcom
       let m;
       try { m = JSON.parse(raw.toString()); } catch { return; }
 
+      if (m.type === 'ping') {
+        send(ws, { type: 'pong' });
+        return;
+      }
+
       if (m.type === 'join' && typeof m.room === 'string' && ROOM_RE.test(m.room)) {
         leave(ws);
         ws.room = m.room;

@@ -50,6 +50,22 @@ const state = {
   acked: new Map(),    // 会话 → 最近已读的消息 ID（断线重连后补发回执，避免对方卡未读）
 };
 
+// 所有跨函数引用的模块级状态统一在顶部初始化，彻底杜绝 ES Module TDZ（暂时性死区）异常
+const updState = { info: null, checking: false, phase: 'idle', pct: 0, downloaded: 0, total: 0, err: '' };
+const updBusy = () => ['downloading', 'verifying', 'installing'].includes(updState.phase);
+const pops = { settings: $('#settings'), actions: $('#actions-pop'), model: $('#model-pop') };
+const wipeShortcutLabel = native.isMac ? '⌘K' : 'Ctrl+K';
+const DM_NAMES_MAX = 100;
+let connGen = 0;
+let reconnectTimer = null;
+let lastTrafficAt = 0;
+let lastPingAt = 0;
+let pingSupport = false; // 收到过服务器的 pong 即开启超时强断检测（兼容未升级的旧服务器）
+let lastStatusKey = 'connecting';
+let lastStatusKind = 'wait';
+let relayPollTimer = null;
+let recentDefaults = [];
+
 /* ---------------- 工具 ---------------- */
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 function format(text) {
@@ -192,7 +208,9 @@ function refreshLabels() {
 }
 
 /** 每个会话一个消息列表，只显示当前会话 */
-const threadEl = (conv) => [...$('#threads').children].find((t) => t.dataset.conv === conv);
+function threadEl(conv) {
+  return [...$('#threads').children].find((t) => t.dataset.conv === conv);
+}
 function threadOf(conv) {
   let el = threadEl(conv);
   if (!el) {
@@ -306,8 +324,10 @@ async function checkServer(val) {
   let wsUrl, url;
   try { wsUrl = toWsUrl(val); url = httpUrl(wsUrl, '/health'); } catch (e) { setServerHint(e.message, 'bad'); return false; }
   setServerHint(t('join.checking'));
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 3000);
   try {
-    const d = await native.healthCheck(url, 3000);
+    const d = await (await fetch(url, { signal: ctl.signal, cache: 'no-store' })).json();
     if (d?.app !== 'agent-relay') throw new Error();
     if (seq === probeSeq) {
       if (lan.isLocalRelayHost(shortServer(wsUrl))) {
@@ -331,6 +351,8 @@ async function checkServer(val) {
       }
     }
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -416,6 +438,7 @@ $('#join-form').onsubmit = async (e) => {
   const btn = $('#join-btn');
   btn.disabled = true; btn.textContent = t('join.deriving');
   if (prefs.notify) native.ensureNotifyPermission();
+  let connected = false;
   try {
     state.name = name;
     state.cid = randomId(); // 本次会话的成员 ID，只在内存里
@@ -423,27 +446,30 @@ $('#join-form').onsubmit = async (e) => {
     state.session = await deriveSession(pass);
     btn.textContent = t('join.connecting');
     await connect(true);
-    // 记住名称和服务器；口令只有勾选时才保存
-    if (native.canRemember) {
-      if (prefs.rememberKey && pass !== savedKey) { if (await native.setSecret(pass)) savedKey = pass; }
-      else if (!prefs.rememberKey && savedKey) { native.deleteSecret(); savedKey = null; }
-    }
-    prefs.name = name;
-    prefs.server = $('#server').value.trim();
-    prefs.recentServers = [prefs.server, ...prefs.recentServers.filter((s) => s !== prefs.server)].slice(0, 8);
-    savePrefs();
-    lan.syncServerOptions();
-    $('#pass').value = ''; $('#pass').type = 'password'; $('#pass-hint').innerHTML = '&nbsp;';
-    enterMain();
+    connected = true;
   } catch (err) {
     state.session = null;
     const ws = state.ws;
     state.ws = null;
-    ws?.close();
+    try { ws?.close(); } catch { /* ignore */ }
     showJoinError(err.message || t('join.errConnect'));
   } finally {
     btn.disabled = false; btn.textContent = t('join.submit');
   }
+  if (!connected) return;
+
+  // 记住名称和服务器；口令只有勾选时才保存（已连接成功后独立执行，绝不误关有效 WebSocket）
+  if (native.canRemember) {
+    if (prefs.rememberKey && pass !== savedKey) { if (await native.setSecret(pass)) savedKey = pass; }
+    else if (!prefs.rememberKey && savedKey) { native.deleteSecret(); savedKey = null; }
+  }
+  prefs.name = name;
+  prefs.server = $('#server').value.trim();
+  prefs.recentServers = [prefs.server, ...prefs.recentServers.filter((s) => s !== prefs.server)].slice(0, 8);
+  savePrefs();
+  lan.syncServerOptions();
+  $('#pass').value = ''; $('#pass').type = 'password'; $('#pass-hint').innerHTML = '&nbsp;';
+  enterMain();
 };
 
 /* ================================================================
@@ -488,12 +514,6 @@ function enterMain() {
 }
 
 /* ---------------- 网络 ---------------- */
-let connGen = 0;
-let reconnectTimer = null;
-let lastTrafficAt = 0;
-let lastPingAt = 0;
-let pingSupport = false; // 收到过服务器的 pong 即开启超时强断检测（兼容未升级的旧服务器）
-
 function clearReconnectTimers() {
   clearTimeout(reconnectTimer);
   reconnectTimer = null;
@@ -944,8 +964,6 @@ function progress(it) {
   if (renderReceipt(it)) markRead(it);
 }
 
-let lastStatusKey = 'connecting';
-let lastStatusKind = 'wait';
 function renderStatusText() {
   if (lastStatusKey === 'online') {
     $('#status').textContent = state.online > 1
@@ -1136,7 +1154,10 @@ function burn(it, instant = false) {
   // 离线成员的私聊焚毁完了，侧栏里就不再显示
   if (isDm(it.conv) && !convPeer(it.conv)?.online && !convItems(it.conv).length) renderRecents();
 }
-function burnAll() { state.acked.clear(); [...state.items].forEach(burn); }
+function burnAll() {
+  state.acked.clear();
+  for (const it of [...state.items]) burn(it, true);
+}
 function burnConv(conv) {
   state.acked.delete(conv);
   convItems(conv).forEach((it) => burn(it, true));
@@ -1359,8 +1380,6 @@ if (native.inTauri) document.body.classList.add('tauri');
 if (native.isMac) document.body.classList.add('mac'); // 只有 macOS 窗口有红绿灯，需要留位置
 
 /* ---------------- 弹层 ---------------- */
-const pops = { settings: $('#settings'), actions: $('#actions-pop'), model: $('#model-pop') };
-let relayPollTimer = null;
 function syncRelayPoll() {
   clearInterval(relayPollTimer);
   relayPollTimer = null;
@@ -1386,15 +1405,14 @@ document.addEventListener('mousedown', (e) => {
   for (const el of Object.values(pops)) if (!el.hidden && !el.contains(e.target)) el.hidden = true;
   syncRelayPoll();
 });
-const anyPopOpen = () => Object.values(pops).some((el) => !el.hidden);
-const closePops = () => { Object.values(pops).forEach((el) => (el.hidden = true)); syncRelayPoll(); };
+function anyPopOpen() { return Object.values(pops).some((el) => !el.hidden); }
+function closePops() { Object.values(pops).forEach((el) => (el.hidden = true)); syncRelayPoll(); }
 
 $('#relay-toggle').onchange = (e) =>
   lan.setLocalRelayFromSettings(e.target.checked, {
     shouldSwitchSession: () => state.entered && state.session && (!state.ws || state.ws.readyState !== WebSocket.OPEN),
   });
 
-const wipeShortcutLabel = native.isMac ? '⌘K' : 'Ctrl+K';
 function renderKeysAndWipeUI() {
   $('#wipe-btn').title = t('composer.wipeTitle', { shortcut: wipeShortcutLabel });
   $('#keys-hint').innerHTML = t('set.keys', { wipeKey: wipeShortcutLabel });
@@ -1423,26 +1441,29 @@ function leave() {
   connGen++;
   clearReconnectTimers();
   const ws = state.ws;
-  burnAll();
-  Object.assign(state, {
-    session: null, ws: null, entered: false, cfgTouched: false, active: GROUP,
-    cfg: { keep: 1, ttl: 0, mview: 10 }, items: [],
-  });
-  for (const k of ['members', 'conns', 'seen', 'incoming', 'receipts', 'acked', 'compacted']) state[k].clear();
-  native.mediaClear();
-  if (ws) {
-    ws.onmessage = null;
-    ws.onclose = null;
-    ws.onerror = null;
-    try { ws.close(); } catch { /* ignore */ }
+  try {
+    burnAll();
+    Object.assign(state, {
+      session: null, ws: null, entered: false, cfgTouched: false, active: GROUP,
+      cfg: { keep: 1, ttl: 0, mview: 10 }, items: [],
+    });
+    for (const k of ['members', 'conns', 'seen', 'incoming', 'receipts', 'acked', 'compacted']) state[k].clear();
+    native.mediaClear();
+    if (ws) {
+      ws.onmessage = null;
+      ws.onclose = null;
+      ws.onerror = null;
+      try { ws.close(); } catch { /* ignore */ }
+    }
+    runner.stop();
+    native.setUnread(0); state.unread = 0;
+    $('#threads').innerHTML = '';
+    closePops();
+    setBoss(false);
+  } finally {
+    $('#main').hidden = true;
+    $('#join').hidden = false;
   }
-  runner.stop();
-  native.setUnread(0); state.unread = 0;
-  $('#threads').innerHTML = '';
-  closePops();
-  setBoss(false);
-  $('#main').hidden = true;
-  $('#join').hidden = false;
   lan.refreshStatus(true);
   $('#pass').focus();
   fillSavedKey();
@@ -1872,18 +1893,16 @@ document.addEventListener('contextmenu', (e) => {
 });
 
 /* ---------------- 伪装场景（按工种切换假历史、后台任务和伪装页） ---------------- */
-const toolLine = (n) => { const t = persona().tools; return t[n % t.length](n); };
+function toolLine(n) { const list = persona().tools; return list[n % list.length](n); }
 
 // 侧栏名称自定义：prefs.recentNames[场景] = { others: [第 3～7 条的默认标题], names: { 序号: 自定义名称 } }
 // 第一次改名时把随机生成的第 3～7 条固定下来，之后打开顺序不变。只存名称，不存口令指纹
-const recentStore = () => (prefs.recentNames[prefs.persona] ||= { others: null, names: {} });
-let recentDefaults = [];
+function recentStore() { return (prefs.recentNames[prefs.persona] ||= { others: null, names: {} }); }
 
 /* 私聊条目：默认名从任务池里按（会话指纹 + 对方名字）选一个。
  * 自定义名称存在 prefs.dmNames 里，键是指纹和名字的哈希：没有口令的人看不出是和谁的私聊 */
-const DM_NAMES_MAX = 100;
-const dmKey = (p) => hashNum(`${state.session?.fingerprint || ''}\n${p.name}`).toString(36);
-const fakeCount = (dmN) => Math.max(3, 6 - dmN); // 私聊多了就少显示几条假任务（含伪装页那条）
+function dmKey(p) { return hashNum(`${state.session?.fingerprint || ''}\n${p.name}`).toString(36); }
+function fakeCount(dmN) { return Math.max(3, 6 - dmN); } // 私聊多了就少显示几条假任务（含伪装页那条）
 function dmDefaults(dms) {
   // 避开侧栏里已经显示的标题，不出现两条同名
   const shown = recentDefaults.slice(0, 1 + fakeCount(dms.length));
@@ -1900,9 +1919,11 @@ function dmDefaults(dms) {
   return out;
 }
 /** 侧栏里显示的私聊：在线且支持私聊的成员，以及还有消息没焚毁 / 正在查看的私聊 */
-const dmList = () => [...state.members.values()]
-  .filter((p) => (p.online && hasCap(p, 'dm')) || convItems(dmConv(p.cid)).length || state.active === dmConv(p.cid))
-  .sort((a, b) => a.seq - b.seq);
+function dmList() {
+  return [...state.members.values()]
+    .filter((p) => (p.online && hasCap(p, 'dm')) || convItems(dmConv(p.cid)).length || state.active === dmConv(p.cid))
+    .sort((a, b) => a.seq - b.seq);
+}
 
 function renderRecents() {
   if (document.querySelector('#recents li.editing')) return; // 正在改名，改完会重新渲染
@@ -2100,14 +2121,10 @@ function applyLanguage(lang, persist = false) {
 document.querySelectorAll('#join-lang-seg button, #lang-seg button').forEach((b) => {
   b.onclick = () => applyLanguage(b.dataset.lang, true);
 });
-applyLanguage(prefs.lang || DEFAULT_LANG, false);
 
 /* ================================================================
  *  版本检测与自动下载重启更新（GitHub Releases）
  * ================================================================ */
-const updState = { info: null, checking: false, phase: 'idle', pct: 0, downloaded: 0, total: 0, err: '' };
-const updBusy = () => ['downloading', 'verifying', 'installing'].includes(updState.phase);
-
 function formatNotes(md) {
   const lines = String(md || '')
     .replace(/\r\n/g, '\n')
@@ -2289,6 +2306,9 @@ $('#upd-act').onclick = startAutoUpdate;
 $('#upd-modal').addEventListener('mousedown', (e) => {
   if (e.target === $('#upd-modal') && !updBusy()) closeUpdModal();
 });
+
+// 所有 DOM 事件与状态初始化完毕后再统一渲染当前语言文案
+applyLanguage(prefs.lang || DEFAULT_LANG, false);
 
 // 启动后静默检测一次新版本，之后每 4 小时定期检测（断网/内网环境静默忽略，不弹报错）
 setTimeout(() => checkForUpdate(), 2500);

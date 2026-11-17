@@ -57,7 +57,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_unread,
             request_attention,
-            discovery::health_check,
             discovery::discover_servers,
             discovery::scan_subnet,
             relay::relay_start,

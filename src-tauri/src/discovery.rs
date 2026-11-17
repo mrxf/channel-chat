@@ -38,39 +38,6 @@ fn clean_name(s: &str) -> String {
     s.chars().filter(|c| !c.is_control()).take(40).collect()
 }
 
-/// 在原生层探测服务器 `/health`（强制 HTTP/1.1，避免 macOS WebKit 缓存 HTTP/2 ALPN 后导致同源 wss:// Upgrade 被 Nginx 400 拒绝）
-#[tauri::command]
-pub async fn health_check(url: String, timeout_ms: Option<u64>) -> Result<String, String> {
-    let u = url.trim().to_string();
-    if !u.starts_with("http://") && !u.starts_with("https://") {
-        return Err("invalid url".into());
-    }
-    if u.len() > 512 || u.chars().any(|c| c.is_control() || c.is_whitespace()) {
-        return Err("invalid url".into());
-    }
-    let secs = ((timeout_ms.unwrap_or(3000).clamp(1000, 10000) + 999) / 1000).to_string();
-    tauri::async_runtime::spawn_blocking(move || {
-        #[allow(unused_mut)]
-        let mut cmd = std::process::Command::new("curl");
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-        let out = cmd
-            .args(["-fsSL", "--http1.1", "--max-time", &secs, "-H", "Cache-Control: no-store", "--", &u])
-            .output()
-            .map_err(|e| e.to_string())?;
-        if !out.status.success() {
-            return Err("unreachable".into());
-        }
-        String::from_utf8(out.stdout).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
 #[tauri::command]
 pub async fn discover_servers(timeout_ms: Option<u64>) -> Result<Vec<Found>, String> {
     let wait = Duration::from_millis(timeout_ms.unwrap_or(1500).clamp(300, 5000));

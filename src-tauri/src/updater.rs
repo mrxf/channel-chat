@@ -101,6 +101,128 @@ fn cmd_quiet(prog: &str) -> Command {
     c
 }
 
+#[allow(dead_code)]
+fn parse_scutil_proxy(text: &str) -> Option<String> {
+    let mut map = std::collections::HashMap::new();
+    for line in text.lines() {
+        if let Some((k, v)) = line.split_once(':') {
+            map.insert(k.trim(), v.trim());
+        }
+    }
+    if map.get("HTTPSEnable") == Some(&"1") {
+        if let (Some(h), Some(p)) = (map.get("HTTPSProxy"), map.get("HTTPSPort")) {
+            if !h.is_empty() && !p.is_empty() {
+                return Some(format!("http://{h}:{p}"));
+            }
+        }
+    }
+    if map.get("HTTPEnable") == Some(&"1") {
+        if let (Some(h), Some(p)) = (map.get("HTTPProxy"), map.get("HTTPPort")) {
+            if !h.is_empty() && !p.is_empty() {
+                return Some(format!("http://{h}:{p}"));
+            }
+        }
+    }
+    if map.get("SOCKSEnable") == Some(&"1") {
+        if let (Some(h), Some(p)) = (map.get("SOCKSProxy"), map.get("SOCKSPort")) {
+            if !h.is_empty() && !p.is_empty() {
+                return Some(format!("socks5h://{h}:{p}"));
+            }
+        }
+    }
+    None
+}
+
+#[allow(dead_code)]
+fn parse_win_reg_proxy(text: &str) -> Option<String> {
+    let mut enabled = false;
+    let mut server = "";
+    for line in text.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 3 && parts[0].eq_ignore_ascii_case("ProxyEnable") {
+            enabled = parts[2] == "0x1" || parts[2] == "1";
+        } else if parts.len() >= 3 && parts[0].eq_ignore_ascii_case("ProxyServer") {
+            server = parts[2];
+        }
+    }
+    if !enabled || server.is_empty() {
+        return None;
+    }
+    if server.contains('=') {
+        let mut https_p = None;
+        let mut http_p = None;
+        let mut socks_p = None;
+        for seg in server.split(';') {
+            if let Some((k, v)) = seg.split_once('=') {
+                let v = v.trim();
+                if v.is_empty() {
+                    continue;
+                }
+                match k.trim().to_ascii_lowercase().as_str() {
+                    "https" => https_p = Some(format!("http://{v}")),
+                    "http" => http_p = Some(format!("http://{v}")),
+                    "socks" | "socks5" => socks_p = Some(format!("socks5h://{v}")),
+                    _ => {}
+                }
+            }
+        }
+        return https_p.or(http_p).or(socks_p);
+    }
+    if server.contains("://") {
+        Some(server.to_string())
+    } else {
+        Some(format!("http://{server}"))
+    }
+}
+
+/// 检测系统代理（GUI 应用从 Finder / 开始菜单启动时无终端代理环境变量，需读取系统代理配置以访问 GitHub）
+fn detect_system_proxy() -> Option<String> {
+    for key in ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy"] {
+        if let Ok(v) = std::env::var(key) {
+            let t = v.trim();
+            if !t.is_empty() {
+                return Some(t.to_string());
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = Command::new("/usr/sbin/scutil").arg("--proxy").output() {
+            if out.status.success() {
+                if let Some(p) = parse_scutil_proxy(&String::from_utf8_lossy(&out.stdout)) {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = cmd_quiet("reg")
+            .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings"])
+            .output()
+        {
+            if out.status.success() {
+                if let Some(p) = parse_win_reg_proxy(&String::from_utf8_lossy(&out.stdout)) {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 调用 curl 执行短请求：若检测到系统代理则优先走代理，代理不通时自动回退直连
+fn curl_output(args: &[&str]) -> std::io::Result<std::process::Output> {
+    if let Some(proxy) = detect_system_proxy() {
+        let out = cmd_quiet("curl").args(["-x", &proxy]).args(args).output()?;
+        if out.status.success() {
+            return Ok(out);
+        }
+        return cmd_quiet("curl").args(["--noproxy", "*"]).args(args).output();
+    }
+    cmd_quiet("curl").args(args).output()
+}
+
 fn parse_semver(s: &str) -> Option<(u64, u64, u64)> {
     let clean = s.trim().trim_start_matches(['v', 'V']);
     let core = clean.split(['-', '+']).next()?;
@@ -199,19 +321,17 @@ fn select_platform_asset(assets: &[GhAsset]) -> (Option<GhAsset>, bool) {
 }
 
 fn fetch_latest_release_blocking() -> Result<ResolvedRelease, String> {
-    let out = cmd_quiet("curl")
-        .args([
-            "-fsSL",
-            "--max-time",
-            "12",
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            "User-Agent: private-chat-updater",
-            API_LATEST,
-        ])
-        .output()
-        .map_err(|e| format!("无法调用网络组件：{e}"))?;
+    let out = curl_output(&[
+        "-fsSL",
+        "--max-time",
+        "12",
+        "-H",
+        "Accept: application/vnd.github+json",
+        "-H",
+        "User-Agent: private-chat-updater",
+        API_LATEST,
+    ])
+    .map_err(|e| format!("无法调用网络组件：{e}"))?;
 
     if !out.status.success() {
         return Err("连接 GitHub Releases 失败，请检查网络".into());
@@ -431,63 +551,89 @@ async fn run_download_and_stage(
         return Err("已取消更新".into());
     }
 
-    // 2. 流式下载安装包到临时文件，实时轮询文件大小汇报进度
+    // 2. 流式下载安装包到临时文件，实时轮询文件大小汇报进度（优先系统代理，代理不可达时自动回退直连）
     let pkg_path = work_dir.join(&asset.name);
-    let mut child = cmd_quiet("curl")
-        .args([
-            "-fSL",
-            "--connect-timeout",
-            "15",
-            "--retry",
-            "2",
-            "-H",
-            "User-Agent: private-chat-updater",
-            "-o",
-        ])
-        .arg(&pkg_path)
-        .arg(&asset.browser_download_url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("启动下载失败：{e}"))?;
+    let sys_proxy = tokio::task::spawn_blocking(detect_system_proxy).await.ok().flatten();
+    let proxy_modes: Vec<Option<String>> = match sys_proxy {
+        Some(p) => vec![Some(p), None],
+        None => vec![None],
+    };
+    let total_attempts = proxy_modes.len();
 
-    loop {
-        if cancel.load(Ordering::Relaxed) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("已取消更新".into());
+    for (attempt, mode) in proxy_modes.into_iter().enumerate() {
+        let _ = fs::remove_file(&pkg_path);
+        let mut cmd = cmd_quiet("curl");
+        if let Some(ref p) = mode {
+            cmd.args(["-x", p]);
+        } else if total_attempts > 1 {
+            cmd.args(["--noproxy", "*"]);
         }
-        let downloaded = fs::metadata(&pkg_path).map(|m| m.len()).unwrap_or(0);
-        let pct = if asset.size > 0 {
-            ((downloaded.saturating_mul(100)) / asset.size).min(99) as u8
-        } else {
-            0
-        };
-        let _ = on_event.send(UpdateProgress {
-            phase: "downloading",
-            downloaded,
-            total: asset.size,
-            percent: pct,
-        });
+        let mut child = cmd
+            .args([
+                "-fSL",
+                "--connect-timeout",
+                "15",
+                "--retry",
+                "2",
+                "-H",
+                "User-Agent: private-chat-updater",
+                "-o",
+            ])
+            .arg(&pkg_path)
+            .arg(&asset.browser_download_url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("启动下载失败：{e}"))?;
 
-        match child.try_wait().map_err(|e| e.to_string())? {
-            Some(status) => {
-                if !status.success() {
-                    let mut err_msg = String::new();
-                    if let Some(mut se) = child.stderr.take() {
-                        let _ = se.read_to_string(&mut err_msg);
-                    }
-                    let detail = err_msg.lines().last().unwrap_or("").trim();
-                    return Err(if detail.is_empty() {
-                        "下载安装包失败，请检查网络连接".into()
-                    } else {
-                        format!("下载失败：{detail}")
-                    });
-                }
-                break;
+        let mut ok_done = false;
+        let mut last_err = String::new();
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("已取消更新".into());
             }
-            None => tokio::time::sleep(Duration::from_millis(120)).await,
+            let downloaded = fs::metadata(&pkg_path).map(|m| m.len()).unwrap_or(0);
+            let pct = if asset.size > 0 {
+                ((downloaded.saturating_mul(100)) / asset.size).min(99) as u8
+            } else {
+                0
+            };
+            let _ = on_event.send(UpdateProgress {
+                phase: "downloading",
+                downloaded,
+                total: asset.size,
+                percent: pct,
+            });
+
+            match child.try_wait().map_err(|e| e.to_string())? {
+                Some(status) => {
+                    if status.success() {
+                        ok_done = true;
+                    } else {
+                        let mut err_msg = String::new();
+                        if let Some(mut se) = child.stderr.take() {
+                            let _ = se.read_to_string(&mut err_msg);
+                        }
+                        let detail = err_msg.lines().last().unwrap_or("").trim();
+                        last_err = if detail.is_empty() {
+                            "下载安装包失败，请检查网络连接".into()
+                        } else {
+                            format!("下载失败：{detail}")
+                        };
+                    }
+                    break;
+                }
+                None => tokio::time::sleep(Duration::from_millis(120)).await,
+            }
+        }
+        if ok_done {
+            break;
+        }
+        if attempt + 1 >= total_attempts {
+            return Err(last_err);
         }
     }
 
@@ -525,17 +671,15 @@ async fn run_download_and_stage(
 }
 
 fn fetch_expected_sha256(sums_url: &str, asset_name: &str) -> Result<Option<String>, String> {
-    let out = cmd_quiet("curl")
-        .args([
-            "-fsSL",
-            "--max-time",
-            "15",
-            "-H",
-            "User-Agent: private-chat-updater",
-            sums_url,
-        ])
-        .output()
-        .map_err(|e| format!("拉取校验文件失败：{e}"))?;
+    let out = curl_output(&[
+        "-fsSL",
+        "--max-time",
+        "15",
+        "-H",
+        "User-Agent: private-chat-updater",
+        sums_url,
+    ])
+    .map_err(|e| format!("拉取校验文件失败：{e}"))?;
     if !out.status.success() {
         return Ok(None);
     }

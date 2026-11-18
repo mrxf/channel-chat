@@ -1,0 +1,30 @@
+mobile/android/app/src/main/AndroidManifest.xml
+  h_595af853e379f3 9-15
+mobile/android/app/src/main/kotlin/com/agentworkspace/agent_mobile/KeepAliveService.kt
+  h_595af853e379f3 30-31,39-60,153,157-159,161
+mobile/android/app/src/main/kotlin/com/agentworkspace/agent_mobile/MainActivity.kt
+  h_595af853e379f3 4-6,13,22-26,32,58-67,157-252,255,276-281
+mobile/lib/chat/chat_controller.dart
+  h_595af853e379f3 40,85,148,170-177,207-208,260,795,815-818,824,826,832,836,848,853,894-903,906-923
+mobile/lib/core/native.dart
+  h_595af853e379f3 5,12-13,18-21,110-137,139,147,156,160-163,171,173,175,178-187,191,195,197-198
+mobile/lib/ui/chat_page.dart
+  h_595af853e379f3 63-65,70-76,81,84,88-94
+mobile/lib/ui/login_page.dart
+  h_595af853e379f3 223-225
+mobile/lib/ui/settings_page.dart
+  h_595af853e379f3 64,69-73,77-82,154,161,168,178-182,186-187,195,218-227,230-232
+mobile/test/notify_test.dart
+  h_595af853e379f3 1-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "7f42f868d9303bda5a71bbae532a736b313354c8",
+  "prompts": {},
+  "humans": {
+    "h_595af853e379f3": {
+      "author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

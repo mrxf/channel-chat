@@ -37,7 +37,7 @@ enum ConnState { idle, connecting, online, reconnecting }
 class ChatController extends ChangeNotifier with WidgetsBindingObserver {
   ChatController(this.prefs) {
     WidgetsBinding.instance.addObserver(this);
-    prefs.addListener(_syncKeepAlive);
+    prefs.addListener(_onPrefsChanged);
     _netSub = Native.networkChanges.listen((_) => _onNetworkChanged());
   }
 
@@ -82,6 +82,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
   Completer<void>? _joined;
   DateTime _lastAction = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
+  int _notifiedCount = 0;
   bool _foreground = true;
   String? _keepAliveText; // 当前常驻通知的文字，null = 服务没在运行
 
@@ -144,6 +145,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     _seen.clear();
     _compacted.clear();
     MemoryMediaServer.instance.clear();
+    _notifiedCount = 0;
     Native.clearNotifications();
     ws?.close();
     notifyListeners();
@@ -163,6 +165,14 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
   void _stopMediaWatch() {
     _mediaWatch?.cancel();
     _mediaWatch = null;
+  }
+
+  void _onPrefsChanged() {
+    _syncKeepAlive();
+    if (!prefs.notify && _notifiedCount > 0) {
+      _notifiedCount = 0;
+      Native.clearNotifications();
+    }
   }
 
   /// 后台保持在线：进入会话后启动 Android 前台服务，常驻通知显示连接状态；退出会话或关闭开关时停止。
@@ -194,6 +204,8 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
       _ticker = null;
     } else {
       if (entered && _ticker == null) _startTicker();
+      _notifiedCount = 0;
+      _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
       Native.clearNotifications();
       _recoverConnection();
     }
@@ -245,7 +257,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    prefs.removeListener(_syncKeepAlive);
+    prefs.removeListener(_onPrefsChanged);
     _netSub?.cancel();
     _netDebounce?.cancel();
     _probeTimer?.cancel();
@@ -780,7 +792,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  void _burn(ChatItem it, {bool instant = false}) {
+  void _burn(ChatItem it, {bool instant = false, bool batch = false}) {
     if (!items.remove(it)) return;
     it.timer?.cancel();
     if (it.kind == ItemKind.media) _cleanupMedia(it);
@@ -800,24 +812,28 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
         tl.insert(0, CompactNote());
       }
     }
-    _updateUnread(arrived: false);
-    notifyListeners();
+    if (!batch) {
+      _updateUnread(arrived: false);
+      notifyListeners();
+    }
   }
 
   void _burnAll() {
     _acked.clear();
     for (final it in items.toList()) {
-      _burn(it, instant: true);
+      _burn(it, instant: true, batch: true);
     }
+    _updateUnread(arrived: false);
   }
 
   void _burnConv(String conv) {
     _acked.remove(conv);
     for (final it in convItems(conv)) {
-      _burn(it, instant: true);
+      _burn(it, instant: true, batch: true);
     }
     _compacted.remove(conv);
     _timeline[conv]?.clear();
+    _updateUnread(arrived: false);
     notifyListeners();
   }
 
@@ -829,11 +845,12 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
         it.seen = true;
         if (!it.read && it.kind == ItemKind.msg) _queueReceipt(it);
       }
-      _burn(it, instant: true);
+      _burn(it, instant: true, batch: true);
     }
     _flushReceipts();
     _compacted.remove(conv);
     _timeline[conv]?.clear();
+    _updateUnread(arrived: false);
     notifyListeners();
   }
 
@@ -874,11 +891,36 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     });
   }
 
+  String _notifyBody(int count) {
+    if (count == 1 && items.lastOrNull?.kind == ItemKind.action) {
+      return '你有一条新的动态，点击查看';
+    }
+    return '你有 $count 条新消息，点击查看';
+  }
+
+  /// 同步锁屏通知与桌面未读角标：
+  ///   - 间隔超过 8 秒触发响铃/震动/横幅提醒；
+  ///   - 8 秒节流窗口内连续到达或后台焚毁部分消息时，静默刷新锁屏文案与角标数字，避免连响打扰。
   void _updateUnread({required bool arrived}) {
     final count = unreadTotal;
-    if (arrived && count > 0 && prefs.notify && !_foreground && DateTime.now().difference(_lastNotify) > const Duration(seconds: 8)) {
-      _lastNotify = DateTime.now();
-      Native.notify(items.lastOrNull?.kind == ItemKind.action ? '你有一条新的动态' : '你有新消息，点击查看');
+    if (_foreground || !prefs.notify || count == 0) {
+      if (_notifiedCount > 0) {
+        _notifiedCount = 0;
+        Native.clearNotifications();
+      }
+      return;
+    }
+    if (arrived) {
+      final now = DateTime.now();
+      final alert = now.difference(_lastNotify) > const Duration(seconds: 8);
+      if (alert) _lastNotify = now;
+      if (alert || count != _notifiedCount) {
+        _notifiedCount = count;
+        Native.notify(_notifyBody(count), count: count, silent: !alert);
+      }
+    } else if (_notifiedCount > 0 && count != _notifiedCount) {
+      _notifiedCount = count;
+      Native.notify(_notifyBody(count), count: count, silent: true);
     }
   }
 

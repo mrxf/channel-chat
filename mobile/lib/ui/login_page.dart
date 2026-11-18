@@ -220,9 +220,10 @@ class _LoginPageState extends State<LoginPage> {
     if (name.isEmpty) return setState(() => _error = '请填写显示名称');
     if (pass.length < 4) return setState(() => _error = '口令至少 4 位');
 
+    // 新消息通知和后台保持在线的常驻通知都需要通知权限（Android 13+）；先完成授权，避免与进房后的后台引导弹窗重叠
+    if (prefs.notify || prefs.keepAlive) await Native.requestNotifyPermission();
+    if (!mounted) return;
     setState(() => _phase = _Phase.deriving);
-    // 新消息通知和后台保持在线的常驻通知都需要通知权限（Android 13+）
-    if (prefs.notify || prefs.keepAlive) Native.requestNotifyPermission();
     // scrypt 在后台 isolate 里跑；派生完成后才开始连接
     final sub = widget.chat.addListener;
     void onChat() {

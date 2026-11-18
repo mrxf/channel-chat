@@ -61,15 +61,25 @@ class SettingsPage extends StatelessWidget {
               ),
               _Row(
                 title: '新消息通知',
-                subtitle: 'App 在后台时提醒，不显示内容和发送者',
+                subtitle: '后台时在锁屏、通知栏和桌面角标提示未读数，不显示内容和发送者',
                 trailing: Switch(
                   value: prefs.notify,
                   onChanged: (v) {
                     prefs.setNotify(v);
-                    if (v) Native.requestNotifyPermission();
+                    if (v) {
+                      Native.requestNotifyPermission();
+                    } else {
+                      Native.clearNotifications();
+                    }
                   },
                 ),
               ),
+              if (prefs.notify && defaultTargetPlatform == TargetPlatform.android)
+                _Row(
+                  title: '锁屏与桌面角标',
+                  subtitle: '可在系统通知管理中开启「锁屏通知」「横幅」及「桌面角标（数字）」',
+                  trailing: TextButton(onPressed: Native.openNotificationSettings, child: const Text('打开')),
+                ),
               _Row(
                 title: '禁止截屏',
                 subtitle: '截屏、录屏、最近任务缩略图里都是空白',
@@ -141,18 +151,21 @@ class _BackgroundCard extends StatefulWidget {
 
 class _BackgroundCardState extends State<_BackgroundCard> with WidgetsBindingObserver {
   bool? _exempt;
+  bool? _notifyAllowed;
   String _rom = 'other';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.prefs.addListener(_check);
     _check();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.prefs.removeListener(_check);
     super.dispose();
   }
 
@@ -162,11 +175,16 @@ class _BackgroundCardState extends State<_BackgroundCard> with WidgetsBindingObs
   }
 
   Future<void> _check() async {
-    final results = await (Native.batteryExempt(), Native.romFamily()).wait;
+    final results = await (
+      Native.batteryExempt(),
+      Native.notificationsEnabled(checkKeepAlive: widget.prefs.keepAlive),
+      Native.romFamily(),
+    ).wait;
     if (!mounted) return;
     setState(() {
       _exempt = results.$1;
-      _rom = results.$2;
+      _notifyAllowed = results.$2;
+      _rom = results.$3;
     });
   }
 
@@ -174,7 +192,7 @@ class _BackgroundCardState extends State<_BackgroundCard> with WidgetsBindingObs
         'xiaomi' => '澎湃 / MIUI：请将省电策略设为「无限制」，并在最近任务里下拉锁定 ChatBuddy',
         'huawei' => '鸿蒙 / EMUI：请关闭「自动管理」并开启「允许后台活动」，并在最近任务里锁定 ChatBuddy',
         'honor' => 'MagicOS：请关闭「自动管理」并开启「允许后台活动」，并在最近任务里锁定 ChatBuddy',
-        'oppo' => 'ColorOS：请在耗电管理里开启「完全允许后台行为」，并在最近任务里锁定 ChatBuddy',
+        'oppo' => 'ColorOS：请在耗电管理中开启「完全允许后台行为」与「自启动」，并在最近任务下拉锁定 ChatBuddy',
         'vivo' => 'OriginOS：请开启「允许后台高耗电」，并在最近任务里锁定 ChatBuddy',
         'meizu' => 'Flyme：请开启「允许后台运行」，并在最近任务里锁定 ChatBuddy',
         _ => '部分系统还要在应用设置里允许「后台活动」，并在最近任务里锁定 ChatBuddy',
@@ -197,9 +215,21 @@ class _BackgroundCardState extends State<_BackgroundCard> with WidgetsBindingObs
         ),
       ),
       if (prefs.keepAlive && defaultTargetPlatform == TargetPlatform.android) ...[
+        if (_notifyAllowed == false)
+          _Row(
+            title: '系统通知权限',
+            subtitle: '未开启：常驻通知被拦截会导致后台保活失效，锁屏与角标也无法提醒',
+            trailing: FilledButton.tonal(
+              onPressed: Native.openNotificationSettings,
+              style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+              child: const Text('去开启'),
+            ),
+          ),
         _Row(
           title: '不受电池优化限制',
-          subtitle: _exempt == false ? '未允许：长时间锁屏后，系统仍可能断开连接' : '已允许',
+          subtitle: _exempt == false
+              ? '未允许：长时间锁屏后，系统仍可能断开连接'
+              : (_rom == 'oppo' ? '已允许原生白名单（ColorOS 还需在下方开启完全允许后台行为）' : '已允许'),
           trailing: _exempt == false
               ? FilledButton.tonal(
                   onPressed: Native.requestBatteryExempt,

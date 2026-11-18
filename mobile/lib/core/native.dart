@@ -2,16 +2,23 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class Native {
   static const _ch = MethodChannel('agent/window');
   static const _msgNotifyId = 1;
+  static const msgChannelId = 'messages_v2';
+  static const _legacyMsgChannelId = 'messages';
   static final _notifier = FlutterLocalNotificationsPlugin();
   static final _netChanges = StreamController<void>.broadcast();
   static bool _notifyReady = false;
   static bool _channelBound = false;
+  @visibleForTesting
+  static void Function(String body, int count, bool silent)? debugOnNotify;
+  @visibleForTesting
+  static VoidCallback? debugOnClear;
 
   /// Android 默认网络发生切换或断网恢复时触发
   static Stream<void> get networkChanges {
@@ -100,8 +107,36 @@ class Native {
     } catch (_) {}
   }
 
+  /// 系统通知总开关及对应渠道是否处于开启状态
+  static Future<bool> notificationsEnabled({bool checkKeepAlive = false}) async {
+    if (!Platform.isAndroid) return true;
+    try {
+      return await _ch.invokeMethod<bool>('notificationsEnabled', checkKeepAlive) ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// 打开系统「应用通知管理」页（可配置锁屏通知、横幅、桌面数字角标）
+  static Future<void> openNotificationSettings() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _ch.invokeMethod('openNotificationSettings');
+    } catch (_) {
+      await openAppSettings();
+    }
+  }
+
+  /// 同步桌面图标未读角标数（0 表示清除）
+  static Future<void> setBadge(int count) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _ch.invokeMethod('setBadge', count);
+    } catch (_) {}
+  }
+
   static Future<void> initNotifications() async {
-    if (_notifyReady) return;
+    if (_notifyReady || (!Platform.isAndroid && !Platform.isIOS)) return;
     try {
       await _notifier.initialize(
         settings: const InitializationSettings(
@@ -109,6 +144,7 @@ class Native {
           iOS: DarwinInitializationSettings(requestAlertPermission: false, requestBadgePermission: false, requestSoundPermission: false),
         ),
       );
+      await _notifier.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.deleteNotificationChannel(channelId: _legacyMsgChannelId);
       _notifyReady = true;
     } catch (_) {}
   }
@@ -117,12 +153,14 @@ class Native {
     await initNotifications();
     try {
       await _notifier.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
-      await _notifier.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()?.requestPermissions(alert: true, sound: true);
+      await _notifier.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()?.requestPermissions(alert: true, badge: true, sound: true);
     } catch (_) {}
   }
 
-  /// 只给通用提示，不含内容和发送者
-  static Future<void> notify(String body) async {
+  /// 只给通用提示与未读条数，不含聊天内容和发送者；允许在锁屏展示并同步应用图标数字角标
+  static Future<void> notify(String body, {required int count, bool silent = false}) async {
+    final n = count < 1 ? 1 : count;
+    debugOnNotify?.call(body, n, silent);
     await initNotifications();
     if (!_notifyReady) return;
     try {
@@ -130,24 +168,34 @@ class Native {
         id: _msgNotifyId,
         title: 'ChatBuddy',
         body: body,
-        notificationDetails: const NotificationDetails(
+        notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
-            'messages',
+            msgChannelId,
             '新消息',
-            channelDescription: '只提示有新消息，不显示内容',
+            channelDescription: '后台收到新消息时在锁屏、横幅和桌面角标提醒（不显示内容和发送者）',
             importance: Importance.high,
             priority: Priority.high,
-            visibility: NotificationVisibility.secret,
-            color: Color(0xFFD97757),
+            category: AndroidNotificationCategory.message,
+            visibility: NotificationVisibility.public,
+            channelShowBadge: true,
+            number: n,
+            onlyAlertOnce: silent,
+            color: const Color(0xFFD97757),
           ),
-          iOS: DarwinNotificationDetails(),
+          iOS: DarwinNotificationDetails(
+            badgeNumber: n,
+            presentSound: !silent,
+          ),
         ),
       );
+      await setBadge(n);
     } catch (_) {}
   }
 
-  /// 只清除新消息通知，不能用 cancelAll()（否则会把 KeepAliveService 的前台常驻通知一并清掉）
+  /// 只清除新消息通知并归零角标，不能用 cancelAll()（否则会把 KeepAliveService 的前台常驻通知一并清掉）
   static Future<void> clearNotifications() async {
+    debugOnClear?.call();
+    await setBadge(0);
     if (!_notifyReady) return;
     try {
       await _notifier.cancel(id: _msgNotifyId);

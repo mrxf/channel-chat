@@ -27,13 +27,36 @@ import android.os.PowerManager
  */
 class KeepAliveService : Service() {
     companion object {
-        private const val CHANNEL = "connection"
+        internal const val CHANNEL = "connection_v2"
+        private const val LEGACY_CHANNEL = "connection"
         private const val NOTIFICATION_ID = 0x4147
         private const val EXTRA_TEXT = "text"
         @Volatile private var running: KeepAliveService? = null
         @Volatile private var pendingStart = false
         @Volatile private var wantStop = false
         @Volatile private var latestText = "后台保持在线"
+
+        /**
+         * 创建无声无震动的默认权重常驻渠道（并清理旧版 IMPORTANCE_LOW 渠道）：
+         *   - ColorOS / 澎湃等系统会将 IMPORTANCE_LOW 前台服务归为折叠低价值通知而降低保活优先级；
+         *   - 使用静音的 IMPORTANCE_DEFAULT 既不发声打扰，又能提升前台服务权重，且关闭角标避免干扰未读计数。
+         */
+        fun ensureChannel(nm: NotificationManager) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            nm.deleteNotificationChannel(LEGACY_CHANNEL)
+            if (nm.getNotificationChannel(CHANNEL) == null) {
+                nm.createNotificationChannel(
+                    NotificationChannel(CHANNEL, "后台保持在线", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                        description = "会话进行中常驻，保证切到后台、锁屏后也能收到消息"
+                        setSound(null, null)
+                        enableVibration(false)
+                        enableLights(false)
+                        setShowBadge(false)
+                        lockscreenVisibility = Notification.VISIBILITY_SECRET
+                    }
+                )
+            }
+        }
 
         /** 启动或更新常驻通知的文字 */
         fun start(ctx: Context, text: String) {
@@ -127,21 +150,15 @@ class KeepAliveService : Service() {
 
     private fun build(text: String): Notification {
         val nm = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL) == null) {
-            nm.createNotificationChannel(
-                NotificationChannel(CHANNEL, "后台保持在线", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "会话进行中常驻，保证切到后台、锁屏后也能收到消息"
-                    setShowBadge(false)
-                    lockscreenVisibility = Notification.VISIBILITY_SECRET
-                }
-            )
-        }
+        ensureChannel(nm)
         val open = packageManager.getLaunchIntentForPackage(packageName)!!
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
         val pi = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val b = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, CHANNEL) else {
+        val b = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, CHANNEL).setBadgeIconType(Notification.BADGE_ICON_NONE)
+        } else {
             @Suppress("DEPRECATION")
-            Notification.Builder(this).setPriority(Notification.PRIORITY_LOW)
+            Notification.Builder(this).setPriority(Notification.PRIORITY_DEFAULT).setSound(null).setVibrate(null)
         }
         b.setSmallIcon(R.drawable.ic_stat_agent)
             .setContentTitle("ChatBuddy")

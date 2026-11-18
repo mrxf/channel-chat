@@ -1,12 +1,16 @@
 package com.agentworkspace.agent_mobile
 
 import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
@@ -15,11 +19,17 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    companion object {
+        private const val MSG_CHANNEL = "messages_v2"
+        private const val LEGACY_MSG_CHANNEL = "messages"
+    }
+
     private var channel: MethodChannel? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        ensureNotificationChannels()
         val ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "agent/window")
         channel = ch
         ch.setMethodCallHandler { call, result ->
@@ -45,6 +55,16 @@ class MainActivity : FlutterActivity() {
                 }
                 "batteryExempt" -> result.success(batteryExempt())
                 "requestBatteryExempt" -> result.success(requestBatteryExempt())
+                "notificationsEnabled" -> result.success(notificationsEnabled(call.arguments == true))
+                "openNotificationSettings" -> {
+                    openNotificationSettings()
+                    result.success(true)
+                }
+                "setBadge" -> {
+                    val count = (call.arguments as? Number)?.toInt() ?: 0
+                    setBadge(count)
+                    result.success(null)
+                }
                 "romFamily" -> result.success(romFamily())
                 "openBackgroundSettings" -> {
                     openBackgroundSettings()
@@ -135,8 +155,104 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
+     * 启动时即注册通知渠道并清理旧渠道：
+     *   1. 删除旧版固化了 VISIBILITY_SECRET 的 messages 渠道，确保覆盖安装后锁屏通知与桌面角标立即生效；
+     *   2. 预建新渠道，用户还未收到第一条后台消息前也能在系统「通知管理」里直接看到并配置它。
+     */
+    private fun ensureNotificationChannels() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        nm.deleteNotificationChannel(LEGACY_MSG_CHANNEL)
+        if (nm.getNotificationChannel(MSG_CHANNEL) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(MSG_CHANNEL, "新消息", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "后台收到新消息时在锁屏、横幅和桌面角标提醒（不显示内容和发送者）"
+                    setShowBadge(true)
+                    enableVibration(true)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                }
+            )
+        }
+        KeepAliveService.ensureChannel(nm)
+    }
+
+    private fun notificationsEnabled(checkKeepAlive: Boolean): Boolean {
+        val nm = getSystemService(NotificationManager::class.java) ?: return true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !nm.areNotificationsEnabled()) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val msgCh = nm.getNotificationChannel(MSG_CHANNEL)
+            if (msgCh != null && msgCh.importance == NotificationManager.IMPORTANCE_NONE) return false
+            if (checkKeepAlive) {
+                val connCh = nm.getNotificationChannel(KeepAliveService.CHANNEL)
+                if (connCh != null && connCh.importance == NotificationManager.IMPORTANCE_NONE) return false
+            }
+        }
+        return true
+    }
+
+    private fun openNotificationSettings() {
+        val candidates = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                add(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+            }
+            add(
+                Intent("android.settings.APP_NOTIFICATION_SETTINGS")
+                    .putExtra("app_package", packageName)
+                    .putExtra("app_uid", applicationInfo.uid)
+            )
+        }
+        for (intent in candidates) {
+            try {
+                startActivity(intent)
+                return
+            } catch (_: Exception) {
+            }
+        }
+        openAppDetails()
+    }
+
+    /**
+     * 同步桌面图标未读数字角标：
+     *   - 原生 Android 8+ / 三星 OneUI / 小米澎湃等直接读取 Notification.number（由通知渠道驱动）
+     *   - OPPO ColorOS / 华为 / 荣耀等额外尝试其桌面 Provider 接口（系统限制或未开放时静默忽略）
+     */
+    private fun setBadge(count: Int) {
+        val n = count.coerceAtLeast(0)
+        when (romFamily()) {
+            "oppo" -> {
+                try {
+                    val extras = Bundle().apply { putInt("app_badge_count", n) }
+                    contentResolver.call(Uri.parse("content://com.android.badge/badge"), "setAppBadgeCount", null, extras)
+                } catch (_: Throwable) {
+                }
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                    try {
+                        val intent = Intent("com.oppo.unsettledevent")
+                            .putExtra("pakeageName", packageName)
+                            .putExtra("number", n)
+                            .putExtra("upgradeNumber", n)
+                        sendBroadcast(intent)
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+            "huawei", "honor" -> {
+                try {
+                    val extras = Bundle().apply {
+                        putString("package", packageName)
+                        putString("class", MainActivity::class.java.name)
+                        putInt("badgenumber", n)
+                    }
+                    contentResolver.call(Uri.parse("content://com.huawei.android.launcher.settings/badge/"), "change_badge", null, extras)
+                } catch (_: Throwable) {
+                }
+            }
+        }
+    }
+
+    /**
      * 国产系统除了原生 Doze 白名单外，还有各自的省电 / 后台冻结管理：
-     * 优先直达对应厂商的后台配置页（小米「省电策略」、华为/荣耀「应用启动管理」、vivo「后台高耗电」、魅族权限页），
+     * 优先直达对应厂商的后台配置页（小米「省电策略」、华为/荣耀「应用启动管理」、OPPO「耗电管理/自启动」、vivo「后台高耗电」、魅族权限页），
      * 目标页面不存在或未导出时回退到应用详情页（ColorOS 等系统的「耗电管理」就在应用详情页内）。
      */
     private fun openBackgroundSettings() {
@@ -156,6 +272,12 @@ class MainActivity : FlutterActivity() {
             "honor" -> listOf(
                 Intent().setComponent(ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
                 Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
+            )
+            "oppo" -> listOf(
+                Intent().setComponent(ComponentName("com.oplus.battery", "com.oplus.powermanager.fuelgaue.PowerConsumptionActivity")),
+                Intent().setComponent(ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerConsumptionActivity")),
+                Intent().setComponent(ComponentName("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity")),
+                Intent().setComponent(ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")),
             )
             "vivo" -> listOf(
                 Intent().setComponent(ComponentName("com.vivo.abe", "com.vivo.applicationbehaviorengine.ui.ExcessivePowerManagerActivity")),

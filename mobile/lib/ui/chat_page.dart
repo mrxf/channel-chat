@@ -60,23 +60,38 @@ class _ChatPageState extends State<ChatPage> with SingleTickerProviderStateMixin
   /// 第一次进入会话时提示一次：允许不受电池优化限制，锁屏久了也不掉线
   Future<void> _askBackground() async {
     final prefs = widget.prefs;
-    if (!prefs.keepAlive || prefs.batteryAsked || await Native.batteryExempt()) return;
+    if (!prefs.keepAlive || prefs.batteryAsked) return;
+    final (exempt, rom) = await (Native.batteryExempt(), Native.romFamily()).wait;
+    if (exempt && rom != 'oppo') return;
     await Future<void>.delayed(const Duration(milliseconds: 600));
     if (!mounted) return;
     await prefs.setBatteryAsked();
     if (!mounted) return;
+    final extra = switch (rom) {
+      'oppo' => '\n\nColorOS（OPPO / 一加 / 真我）还需在「应用详情 → 耗电管理」开启「完全允许后台行为」与「自启动」，并在最近任务下拉锁定 ChatBuddy，否则锁屏或回桌面会断线。',
+      'xiaomi' => '\n\n澎湃 / MIUI 还建议在「设置 → 后台 → 系统后台管理」将省电策略设为「无限制」并锁定任务。',
+      'huawei' || 'honor' => '\n\n鸿蒙 / MagicOS 还建议在「设置 → 后台 → 系统后台管理」关闭自动管理、允许后台活动并锁定任务。',
+      'vivo' => '\n\nOriginOS 还建议在「设置 → 后台 → 系统后台管理」开启允许后台高耗电并锁定任务。',
+      _ => '',
+    };
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('允许在后台运行'),
-        content: const Text('ChatBuddy 会在通知栏常驻一条提示，切到后台、锁屏后也保持在线，别人发的消息照常能收到。\n\n部分手机会限制后台应用，建议在接下来的系统弹窗里选择「允许」。之后可以在设置里关闭。'),
+        content: Text('ChatBuddy 会在通知栏常驻一条提示，切到后台、锁屏后也保持在线，别人发的消息照常能收到。\n\n部分手机会限制后台应用，建议在接下来的系统设置中选择「允许」。$extra'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('以后再说')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('去允许')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('去设置')),
         ],
       ),
     );
-    if (ok == true) Native.requestBatteryExempt();
+    if (ok == true) {
+      if (!exempt) {
+        await Native.requestBatteryExempt();
+      } else {
+        await Native.openBackgroundSettings();
+      }
+    }
   }
 
   @override

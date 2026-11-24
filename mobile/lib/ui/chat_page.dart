@@ -36,8 +36,13 @@ class _ChatPageState extends State<ChatPage> with SingleTickerProviderStateMixin
   late final _shake = AnimationController(vsync: this, duration: const Duration(milliseconds: 480));
   StreamSubscription<String>? _toastSub;
   StreamSubscription<void>? _nudgeSub;
+  StreamSubscription<({double sec, double level})>? _recTickSub;
+  StreamSubscription<void>? _recAutoSub;
   bool _showJump = false;
   bool _preparing = false;
+  bool _recording = false;
+  double _recSec = 0;
+  double _recLevel = 0;
   String _lastConv = group;
   int _lastCount = 0;
 
@@ -48,6 +53,12 @@ class _ChatPageState extends State<ChatPage> with SingleTickerProviderStateMixin
     super.initState();
     _toastSub = chat.toasts.listen(_toast);
     _nudgeSub = chat.nudges.listen((_) => _shake.forward(from: 0));
+    _recTickSub = Native.voiceRecordTicks.listen((e) {
+      if (mounted && _recording) setState(() { _recSec = e.sec; _recLevel = e.level; });
+    });
+    _recAutoSub = Native.voiceRecordAutoStops.listen((_) {
+      if (mounted && _recording) _finishVoice(sendNow: true);
+    });
     _input.addListener(() => setState(() {}));
     _scroll.addListener(() {
       final show = _scroll.hasClients && _scroll.offset > 400;
@@ -99,6 +110,9 @@ class _ChatPageState extends State<ChatPage> with SingleTickerProviderStateMixin
     chat.removeListener(_onChat);
     _toastSub?.cancel();
     _nudgeSub?.cancel();
+    _recTickSub?.cancel();
+    _recAutoSub?.cancel();
+    if (_recording) Native.cancelVoiceRecord();
     _shake.dispose();
     _input.dispose();
     _focus.dispose();
@@ -252,6 +266,53 @@ class _ChatPageState extends State<ChatPage> with SingleTickerProviderStateMixin
         }
       });
 
+  Future<void> _startVoice() async {
+    if (_recording) return;
+    _focus.unfocus();
+    final blocker = chat.mediaBlocker(cap: 'audio');
+    if (blocker != null) return _toast(blocker);
+    final okPerm = await Native.requestMicPermission();
+    if (!mounted) return;
+    if (!okPerm) return _toast('需要麦克风权限才能发送语音');
+    chat.stopActiveVoice(burnNow: true);
+    final started = await Native.startVoiceRecord();
+    if (!mounted) return;
+    if (!started) return _toast('无法启动录音，请稍后重试');
+    if (widget.prefs.haptics) HapticFeedback.mediumImpact();
+    setState(() {
+      _recording = true;
+      _recSec = 0;
+      _recLevel = 0;
+    });
+  }
+
+  Future<void> _finishVoice({required bool sendNow}) async {
+    if (!_recording) return;
+    setState(() => _recording = false);
+    if (!sendNow) {
+      await Native.cancelVoiceRecord();
+      if (widget.prefs.haptics) HapticFeedback.lightImpact();
+      return;
+    }
+    final res = await Native.stopVoiceRecord();
+    if (!mounted) return;
+    if (res.tooShort || res.wav == null) {
+      _toast('说话时间太短');
+      return;
+    }
+    if (widget.prefs.haptics) HapticFeedback.selectionClick();
+    final prep = PreparedMedia(
+      kind: 'audio',
+      mime: 'audio/wav',
+      bytes: res.wav!,
+      w: 1,
+      h: 1,
+      dur: res.dur,
+      peaks: res.peaks,
+    );
+    await chat.sendMedia(prep);
+  }
+
   void _onLongPress(ChatItem it) {
     HapticFeedback.mediumImpact();
     final p = context.pal;
@@ -380,8 +441,14 @@ class _ChatPageState extends State<ChatPage> with SingleTickerProviderStateMixin
               controller: _input,
               focus: _focus,
               preparing: _preparing,
+              recording: _recording,
+              recSec: _recSec,
+              recLevel: _recLevel,
               onSend: _send,
               onAttach: _attach,
+              onStartVoice: _startVoice,
+              onCancelVoice: () => _finishVoice(sendNow: false),
+              onSendVoice: () => _finishVoice(sendNow: true),
             ),
           ]),
         ),
@@ -595,13 +662,32 @@ class _EmptyState extends StatelessWidget {
 /* ---------------- 输入框 ---------------- */
 
 class _Composer extends StatelessWidget {
-  const _Composer({required this.chat, required this.controller, required this.focus, required this.preparing, required this.onSend, required this.onAttach});
+  const _Composer({
+    required this.chat,
+    required this.controller,
+    required this.focus,
+    required this.preparing,
+    required this.recording,
+    required this.recSec,
+    required this.recLevel,
+    required this.onSend,
+    required this.onAttach,
+    required this.onStartVoice,
+    required this.onCancelVoice,
+    required this.onSendVoice,
+  });
   final ChatController chat;
   final TextEditingController controller;
   final FocusNode focus;
   final bool preparing;
+  final bool recording;
+  final double recSec;
+  final double recLevel;
   final VoidCallback onSend;
   final VoidCallback onAttach;
+  final VoidCallback onStartVoice;
+  final VoidCallback onCancelVoice;
+  final VoidCallback onSendVoice;
 
   @override
   Widget build(BuildContext context) {
@@ -621,61 +707,109 @@ class _Composer extends StatelessWidget {
               decoration: BoxDecoration(
                 color: p.panel,
                 borderRadius: BorderRadius.circular(26),
-                border: Border.all(color: p.line),
+                border: Border.all(color: recording ? p.bad.withValues(alpha: 0.45) : p.line),
                 boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 18, offset: const Offset(0, 4))],
               ),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 200),
-                  child: preparing
-                      ? Padding(
-                          padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-                          child: Row(children: [
-                            SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.6, color: p.muted)),
-                            const SizedBox(width: 8),
-                            Text('正在处理附件…', style: TextStyle(fontSize: 12.5, color: p.muted)),
-                          ]),
-                        )
-                      : const SizedBox(width: double.infinity),
-                ),
-                TextField(
-                  controller: controller,
-                  focusNode: focus,
-                  minLines: 1,
-                  maxLines: 6,
-                  textCapitalization: TextCapitalization.sentences,
-                  keyboardType: TextInputType.multiline,
-                  style: TextStyle(fontSize: 16, height: 1.45, color: p.text),
-                  decoration: InputDecoration(
-                    hintText: hint,
-                    filled: false,
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    contentPadding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                  child: Row(children: [
-                    _RoundIcon(icon: Icons.add_rounded, onTap: onAttach, color: p.text, bg: Colors.transparent, border: p.line),
-                    const SizedBox(width: 6),
-                    _CfgChip(chat: chat),
-                    const Spacer(),
-                    AnimatedScale(
-                      scale: canSend ? 1 : 0.86,
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOutBack,
-                      child: _RoundIcon(
-                        icon: Icons.arrow_upward_rounded,
-                        onTap: canSend ? onSend : null,
-                        color: canSend ? Colors.white : p.muted,
-                        bg: canSend ? brand : p.bubble,
+              child: recording
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+                      child: Row(children: [
+                        StatusDot(color: p.bad, size: 8, pulse: true),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${fmtDur(recSec)} / 1:00',
+                          style: TextStyle(fontFamily: monoFamily, fontSize: 13.5, fontWeight: FontWeight.w600, color: p.text, fontFeatures: const [FontFeature.tabularFigures()]),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SizedBox(
+                            height: 22,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                for (var i = 0; i < 12; i++)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 90),
+                                      width: 3,
+                                      height: (4 + recLevel * 16 * (0.45 + 0.55 * math.sin(recSec * 12 + i * 0.8).abs())).clamp(4.0, 20.0),
+                                      decoration: BoxDecoration(color: brand, borderRadius: BorderRadius.circular(2)),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: onCancelVoice,
+                          style: TextButton.styleFrom(foregroundColor: p.muted, visualDensity: VisualDensity.compact),
+                          child: const Text('取消'),
+                        ),
+                        const SizedBox(width: 2),
+                        _RoundIcon(icon: Icons.arrow_upward_rounded, onTap: onSendVoice, color: Colors.white, bg: brand),
+                      ]),
+                    )
+                  : Column(mainAxisSize: MainAxisSize.min, children: [
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 200),
+                        child: preparing
+                            ? Padding(
+                                padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+                                child: Row(children: [
+                                  SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.6, color: p.muted)),
+                                  const SizedBox(width: 8),
+                                  Text('正在处理附件…', style: TextStyle(fontSize: 12.5, color: p.muted)),
+                                ]),
+                              )
+                            : const SizedBox(width: double.infinity),
                       ),
-                    ),
-                  ]),
-                ),
-              ]),
+                      TextField(
+                        controller: controller,
+                        focusNode: focus,
+                        minLines: 1,
+                        maxLines: 6,
+                        textCapitalization: TextCapitalization.sentences,
+                        keyboardType: TextInputType.multiline,
+                        style: TextStyle(fontSize: 16, height: 1.45, color: p.text),
+                        decoration: InputDecoration(
+                          hintText: hint,
+                          filled: false,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          contentPadding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                        child: Row(children: [
+                          _RoundIcon(icon: Icons.add_rounded, onTap: onAttach, color: p.text, bg: Colors.transparent, border: p.line),
+                          const SizedBox(width: 6),
+                          _CfgChip(chat: chat),
+                          const Spacer(),
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 180),
+                            transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
+                            child: canSend
+                                ? _RoundIcon(
+                                    key: const ValueKey('send'),
+                                    icon: Icons.arrow_upward_rounded,
+                                    onTap: onSend,
+                                    color: Colors.white,
+                                    bg: brand,
+                                  )
+                                : _RoundIcon(
+                                    key: const ValueKey('mic'),
+                                    icon: Icons.mic_none_rounded,
+                                    onTap: onStartVoice,
+                                    color: p.text,
+                                    bg: p.bubble,
+                                  ),
+                          ),
+                        ]),
+                      ),
+                    ]),
             ),
           ),
         );
@@ -685,7 +819,7 @@ class _Composer extends StatelessWidget {
 }
 
 class _RoundIcon extends StatelessWidget {
-  const _RoundIcon({required this.icon, required this.onTap, required this.color, required this.bg, this.border});
+  const _RoundIcon({super.key, required this.icon, required this.onTap, required this.color, required this.bg, this.border});
   final IconData icon;
   final VoidCallback? onTap;
   final Color color;

@@ -3,6 +3,7 @@
 export const CHUNK = 64 * 1024;
 export const MAX_VIDEO = 50 * 1024 * 1024;
 export const MAX_IMAGE_RAW = 40 * 1024 * 1024; // 原图读取上限（重新编码后会小很多）
+export const MAX_AUDIO = 5 * 1024 * 1024;      // 语音上限（60s 16kHz WAV 约 1.9MB）
 export const MAX_GIF = 10 * 1024 * 1024;
 export const MAX_INFLIGHT = 300 * 1024 * 1024; // 接收方同时持有的附件总量上限
 const IMAGE_MAX_SIDE = 2048;
@@ -10,6 +11,7 @@ const THUMB_SIDE = 32;
 
 export const IMAGE_MIME = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 export const VIDEO_MIME = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v'];
+export const AUDIO_MIME = ['audio/wav', 'audio/mp4', 'audio/webm', 'audio/ogg'];
 const EXT_MIME = { mp4: 'video/mp4', m4v: 'video/x-m4v', mov: 'video/quicktime', webm: 'video/webm' };
 
 export const fmtSize = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`);

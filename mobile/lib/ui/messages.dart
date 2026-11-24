@@ -350,6 +350,24 @@ class _MediaMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.pal;
+    if (it.isAudio) {
+      final card = _VoiceCard(it: it, chat: chat);
+      if (it.mine) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(64, 10, 16, 2),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            GestureDetector(onLongPress: () => onLongPress(it), child: card),
+          ]),
+        );
+      }
+      return Padding(
+        padding: EdgeInsets.fromLTRB(20, showHeader ? 18 : 8, 56, 2),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (showHeader) _SenderHeader(it: it, chat: chat),
+          GestureDetector(onLongPress: () => onLongPress(it), child: card),
+        ]),
+      );
+    }
     final card = MediaCard(it: it, chat: chat, onOpenImage: onOpenImage);
     if (it.mine) {
       return Padding(
@@ -366,6 +384,158 @@ class _MediaMessage extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (showHeader) _SenderHeader(it: it, chat: chat),
         GestureDetector(onLongPress: () => onLongPress(it), child: card),
+      ]),
+    );
+  }
+}
+
+class _VoiceCard extends StatelessWidget {
+  const _VoiceCard({required this.it, required this.chat});
+  final ChatItem it;
+  final ChatController chat;
+
+  static const _fallbackPeaks = [24, 42, 68, 52, 80, 62, 36, 74, 88, 50, 44, 70, 58, 32, 64, 76, 48, 38, 60, 40];
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    final playing = it.status == MediaStatus.viewing;
+    final busy = it.status == MediaStatus.opening || it.status == MediaStatus.receiving;
+    final canTap = !it.mine && (it.status == MediaStatus.ready || playing);
+    final peaks = (it.peaks != null && it.peaks!.isNotEmpty) ? it.peaks! : _fallbackPeaks;
+    final lit = playing ? (it.audioProgress * peaks.length).ceil() : 0;
+    final durLabel = playing && it.audioRemain != null ? fmtDur(it.audioRemain!) : fmtDur(it.dur);
+    final many = it.mine && it.total > 1;
+    final earpiece = chat.prefs.voiceEarpiece;
+
+    final (statusText, statusColor) = switch (it.status) {
+      MediaStatus.receiving => ('接收中 ${it.pct}%', p.muted),
+      MediaStatus.sending => ('加密发送 ${it.pct}%', p.muted),
+      MediaStatus.ready => ('单次播完即焚 · 防内录', p.muted),
+      MediaStatus.opening => ('解密中…', p.muted),
+      MediaStatus.viewing => ('播放中 · 再次点击即焚', brand),
+      MediaStatus.sent => ('已发送语音', p.muted),
+      MediaStatus.delivered => (many ? '已送达 ${it.recvBy.length}/${it.total} · 等待收听' : '已送达 · 等待收听', p.muted),
+      MediaStatus.partview => ('已收听 ${it.viewBy.length}/${it.total}', p.muted),
+      MediaStatus.viewed => (many ? '全部已收听' : '对方已收听', p.good),
+      MediaStatus.undelivered => ('对方未接收 · 需升级客户端', p.bad),
+      MediaStatus.failed => ('传输失败', p.bad),
+    };
+
+    final maxW = (MediaQuery.sizeOf(context).width * 0.72).clamp(220.0, 300.0);
+
+    return Container(
+      width: maxW,
+      decoration: BoxDecoration(
+        color: it.mine ? p.bubble : p.panel,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: playing ? brand.withValues(alpha: 0.65) : p.line.withValues(alpha: 0.7)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 11, 12, 8),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              Pressable(
+                haptic: true,
+                onTap: canTap ? () => chat.viewMedia(it) : null,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: it.mine
+                        ? p.text.withValues(alpha: 0.1)
+                        : playing
+                            ? p.bad
+                            : (canTap ? p.text : p.muted.withValues(alpha: 0.25)),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: busy
+                      ? SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 1.8, color: p.bg))
+                      : Icon(
+                          it.mine
+                              ? Icons.mic_none_rounded
+                              : playing
+                                  ? Icons.stop_rounded
+                                  : Icons.play_arrow_rounded,
+                          size: 20,
+                          color: it.mine ? p.text : (playing ? Colors.white : p.bg),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: SizedBox(
+                  height: 26,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      for (var i = 0; i < peaks.length; i++)
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 1),
+                            child: FractionallySizedBox(
+                              heightFactor: (peaks[i].clamp(18, 100)) / 100.0,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: i < lit ? brand : p.muted.withValues(alpha: 0.35),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                durLabel,
+                style: TextStyle(fontFamily: monoFamily, fontSize: 12.5, fontWeight: FontWeight.w600, color: p.text, fontFeatures: const [FontFeature.tabularFigures()]),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            Row(children: [
+              Expanded(
+                child: Text(statusText, style: TextStyle(fontSize: 11.5, color: statusColor, fontWeight: playing || it.status == MediaStatus.viewed ? FontWeight.w500 : FontWeight.w400), overflow: TextOverflow.ellipsis),
+              ),
+              if (!it.mine && (it.status == MediaStatus.ready || playing))
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    chat.toggleVoiceEarpiece();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: p.bubble.withValues(alpha: 0.9),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: p.line),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(earpiece ? Icons.hearing_rounded : Icons.volume_up_rounded, size: 12, color: p.muted),
+                      const SizedBox(width: 3),
+                      Text(earpiece ? '听筒' : '外放', style: TextStyle(fontSize: 11, color: p.muted)),
+                    ]),
+                  ),
+                )
+              else
+                Text(fmtSize(it.size), style: TextStyle(fontSize: 11, color: p.muted)),
+            ]),
+          ]),
+        ),
+        SizedBox(
+          height: 2.5,
+          child: LinearProgressIndicator(
+            value: playing ? it.audioProgress : 0,
+            backgroundColor: Colors.transparent,
+            color: brand,
+          ),
+        ),
       ]),
     );
   }

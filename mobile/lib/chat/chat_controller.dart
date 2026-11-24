@@ -22,7 +22,7 @@ import '../core/prefs.dart';
 import '../core/version.dart';
 import 'models.dart';
 
-const _caps = ['media', 'dm'];
+const _caps = ['media', 'dm', 'audio'];
 const _maxSkew = Duration(minutes: 10);
 const _tick = 250;
 const _actionTtl = 20;
@@ -39,6 +39,8 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     prefs.addListener(_onPrefsChanged);
     _netSub = Native.networkChanges.listen((_) => _onNetworkChanged());
+    _voiceProgSub = Native.voicePlayProgress.listen(_onVoiceProgress);
+    _voiceEndSub = Native.voicePlayEnded.listen(_onVoiceEnded);
   }
 
   final Prefs prefs;
@@ -79,6 +81,9 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _ticker;
   Timer? _mediaWatch;
   StreamSubscription<void>? _netSub;
+  StreamSubscription<({String id, double frac, int remain})>? _voiceProgSub;
+  StreamSubscription<String>? _voiceEndSub;
+  String? _playingVoiceId;
   Completer<void>? _joined;
   DateTime _lastAction = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
@@ -122,6 +127,8 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
 
   void leave() {
     final ws = _ws;
+    stopActiveVoice(burnNow: true);
+    Native.cancelVoiceRecord();
     _burnAll();
     _gen++;
     _reconnectTimer?.cancel();
@@ -202,6 +209,9 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     if (!_foreground) {
       _ticker?.cancel();
       _ticker = null;
+      // 切到后台立即中断正在播放的语音并清零焚毁，避免后台外放或锁屏漏音
+      stopActiveVoice(burnNow: true);
+      Native.cancelVoiceRecord();
     } else {
       if (entered && _ticker == null) _startTicker();
       _notifiedCount = 0;
@@ -259,6 +269,8 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     prefs.removeListener(_onPrefsChanged);
     _netSub?.cancel();
+    _voiceProgSub?.cancel();
+    _voiceEndSub?.cancel();
     _netDebounce?.cancel();
     _probeTimer?.cancel();
     leave();
@@ -1025,9 +1037,10 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
 
   void _onMediaMeta(Map<String, dynamic> m, Member p, String conv) {
     final mtype = m['mtype'];
-    if (mtype != 'image' && mtype != 'video') return;
-    if (!(mtype == 'image' ? imageMime : videoMime).contains(m['mime'])) return;
-    final limit = mtype == 'image' ? maxImageRaw : maxVideo;
+    if (mtype != 'image' && mtype != 'video' && mtype != 'audio') return;
+    final allowed = mtype == 'image' ? imageMime : mtype == 'video' ? videoMime : audioMime;
+    if (!allowed.contains(m['mime'])) return;
+    final limit = mtype == 'image' ? maxImageRaw : mtype == 'video' ? maxVideo : maxAudio;
     final size = m['size'], chunks = m['chunks'];
     if (size is! int || size <= 0 || size > limit) return;
     if (chunks != (size / chunkSize).ceil()) return;
@@ -1043,6 +1056,10 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
         thumb = base64Decode(t.substring(t.indexOf(',') + 1));
       } catch (_) {}
     }
+    List<int>? peaks;
+    if (mtype == 'audio' && m['peaks'] is List) {
+      peaks = (m['peaks'] as List).take(32).whereType<num>().map((e) => e.toInt().clamp(8, 100)).toList();
+    }
     int clampInt(Object? v, int def) => v is num && v.toInt() > 0 ? v.toInt().clamp(1, 10000) : def;
     final it = ChatItem(id: m['id'], conv: conv, kind: ItemKind.media, mine: false, cid: p.cid)
       ..mtype = mtype
@@ -1053,6 +1070,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
       ..h = clampInt(m['h'], 9)
       ..dur = (m['dur'] is num ? (m['dur'] as num) : 0).clamp(0, 36000)
       ..thumb = thumb
+      ..peaks = peaks
       ..status = MediaStatus.receiving
       ..frames = List<Uint8List?>.filled(chunks, null)
       ..lastAt = DateTime.now();
@@ -1099,24 +1117,26 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// 发送前检查；返回 null 表示可以发送
-  String? mediaBlocker() {
-    if (!serverMedia) return '服务器版本过旧，不支持图片 / 视频';
+  String? mediaBlocker({String cap = 'media'}) {
+    final isVoice = cap == 'audio';
+    if (!serverMedia) return isVoice ? '服务器版本过旧，不支持语音消息' : '服务器版本过旧，不支持图片 / 视频';
     final peer = convPeer(active);
     if (peer != null) {
       final who = labelOf(peer).text;
-      if (!peer.online) return '$who 已离线 · 附件需要对方在线才能接收';
-      if (!peer.hasCap('media')) return '$who 的客户端版本过旧，收不到图片 / 视频';
-      if (!serverDirect) return '服务器版本过旧，私聊不能发图片 / 视频';
+      if (!peer.online) return '$who 已离线 · ${isVoice ? '语音' : '附件'}需要对方在线才能接收';
+      if (!peer.hasCap(cap)) return '$who 的客户端版本过旧，收不到${isVoice ? '语音消息' : '图片 / 视频'}';
+      if (!serverDirect) return '服务器版本过旧，私聊不能发${isVoice ? '语音' : '图片 / 视频'}';
       return null;
     }
     final others = onlineMembers;
-    if (others.isEmpty) return '其他人都不在线 · 附件需要对方在线才能接收';
-    if (others.every((p) => !p.hasCap('media'))) return '对方的客户端版本过旧，收不到图片 / 视频';
+    if (others.isEmpty) return '其他人都不在线 · ${isVoice ? '语音' : '附件'}需要对方在线才能接收';
+    if (others.every((p) => !p.hasCap(cap))) return '对方的客户端版本过旧，收不到${isVoice ? '语音消息' : '图片 / 视频'}';
     return null;
   }
 
   Future<void> sendMedia(PreparedMedia prep) async {
-    final blocker = mediaBlocker();
+    final cap = prep.kind == 'audio' ? 'audio' : 'media';
+    final blocker = mediaBlocker(cap: cap);
     final bytes = prep.bytes;
     if (blocker != null) {
       bytes.fillRange(0, bytes.length, 0);
@@ -1132,6 +1152,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     final meta = {
       't': 'media', 'id': id, 'ts': DateTime.now().millisecondsSinceEpoch, 'mtype': prep.kind, 'mime': prep.mime, //
       'size': bytes.length, 'chunks': total, 'w': prep.w, 'h': prep.h, 'dur': prep.dur.round(), 'thumb': prep.thumb,
+      if (prep.peaks != null && prep.peaks!.isNotEmpty) 'peaks': prep.peaks,
     };
     final connId = peer?.conn;
     final route = connId != null ? fromHex(connId) : null;
@@ -1141,7 +1162,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     _seen.add(id);
-    final r = _recipients(conv, 'media');
+    final r = _recipients(conv, cap);
     final it = ChatItem(id: id, conv: conv, kind: ItemKind.media, mine: true)
       ..mtype = prep.kind
       ..mime = prep.mime
@@ -1150,6 +1171,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
       ..w = prep.w
       ..h = prep.h
       ..dur = prep.dur
+      ..peaks = prep.peaks
       ..thumb = prep.thumb.isEmpty ? null : base64Decode(prep.thumb.substring(prep.thumb.indexOf(',') + 1))
       ..status = MediaStatus.sending
       ..need = r.need
@@ -1193,8 +1215,49 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  void _onVoiceProgress(({String id, double frac, int remain}) ev) {
+    final it = items.where((i) => i.id == ev.id && i.isAudio).firstOrNull;
+    if (it == null || it.burning) return;
+    it.audioProgress = ev.frac.clamp(0.0, 1.0);
+    it.audioRemain = ev.remain;
+    notifyListeners();
+  }
+
+  void _onVoiceEnded(String id) {
+    if (_playingVoiceId == id) _playingVoiceId = null;
+    final it = items.where((i) => i.id == id && i.isAudio).firstOrNull;
+    if (it != null && !it.burning) _burn(it);
+  }
+
+  void stopActiveVoice({bool burnNow = false}) {
+    final id = _playingVoiceId;
+    _playingVoiceId = null;
+    Native.stopVoicePlay();
+    if (burnNow && id != null) {
+      final it = items.where((i) => i.id == id && i.isAudio).firstOrNull;
+      if (it != null && !it.burning) _burn(it, instant: true);
+    }
+  }
+
+  Future<void> toggleVoiceEarpiece() async {
+    final next = !prefs.voiceEarpiece;
+    await prefs.setVoiceEarpiece(next);
+    await Native.setVoiceEarpiece(next);
+    toast(next ? '已切换为听筒模式（贴耳自动息屏）' : '已切换为扬声器外放');
+  }
+
   Future<void> viewMedia(ChatItem it) async {
+    if (it.isAudio && it.status == MediaStatus.viewing) {
+      // 单次播放：播放中再次点击 = 立即中断、清零内存并焚毁
+      if (_playingVoiceId == it.id) _playingVoiceId = null;
+      Native.stopVoicePlay(it.id);
+      _burn(it);
+      return;
+    }
     if (it.status != MediaStatus.ready || it.frames == null || session == null) return;
+    if (it.isAudio && _playingVoiceId != null && _playingVoiceId != it.id) {
+      stopActiveVoice(burnNow: true);
+    }
     it.status = MediaStatus.opening;
     notifyListeners();
     final frames = it.frames!.cast<Uint8List>();
@@ -1212,7 +1275,25 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     _replyTo(it, {'t': 'mview', 'id': it.id});
     final n = cfg.mview;
     try {
-      if (it.isVideo) {
+      if (it.isAudio) {
+        _playingVoiceId = it.id;
+        it.audioProgress = 0;
+        it.audioRemain = it.dur.round();
+        final ok = await Native.playVoice(it.id, plain, earpiece: prefs.voiceEarpiece);
+        plain.fillRange(0, plain.length, 0);
+        if (!ok || it.burning || !items.contains(it)) {
+          if (_playingVoiceId == it.id) _playingVoiceId = null;
+          it.status = MediaStatus.failed;
+          Timer(const Duration(seconds: 3), () => _burn(it));
+          notifyListeners();
+          return;
+        }
+        // 兜底：异常未收到 playEnded 时强制清零焚毁
+        it.capTimer = Timer(Duration(seconds: (it.dur + 15).round()), () {
+          Native.stopVoicePlay(it.id);
+          _burn(it);
+        });
+      } else if (it.isVideo) {
         final url = await MemoryMediaServer.instance.put(plain, it.mime!);
         it.videoUrl = url;
         final c = VideoPlayerController.networkUrl(url, videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true));
@@ -1251,6 +1332,10 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
   void _cleanupMedia(ChatItem it) {
     it.countdown?.cancel();
     it.capTimer?.cancel();
+    if (it.isAudio) {
+      if (_playingVoiceId == it.id) _playingVoiceId = null;
+      Native.stopVoicePlay(it.id);
+    }
     _incoming.remove(it.id);
     if (_incoming.isEmpty) _stopMediaWatch();
     for (final f in it.frames ?? <Uint8List?>[]) {

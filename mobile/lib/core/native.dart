@@ -201,4 +201,126 @@ class Native {
       await _notifier.cancel(id: _msgNotifyId);
     } catch (_) {}
   }
+
+  /* ---------------- 纯内存语音录音 / 防内录听筒播放（Android 原生） ---------------- */
+
+  static const _voiceCh = MethodChannel('agent/voice');
+  static bool _voiceBound = false;
+  static final _recTicks = StreamController<({double sec, double level})>.broadcast();
+  static final _recAutoStops = StreamController<void>.broadcast();
+  static final _playProgress = StreamController<({String id, double frac, int remain})>.broadcast();
+  static final _playEnded = StreamController<String>.broadcast();
+
+  static void _bindVoice() {
+    if (_voiceBound || !Platform.isAndroid) return;
+    _voiceBound = true;
+    _voiceCh.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'recordTick':
+          final m = call.arguments as Map?;
+          if (m != null) {
+            _recTicks.add((sec: (m['sec'] as num?)?.toDouble() ?? 0, level: (m['level'] as num?)?.toDouble() ?? 0));
+          }
+        case 'recordAutoStop':
+          _recAutoStops.add(null);
+        case 'playProgress':
+          final m = call.arguments as Map?;
+          if (m != null && m['id'] is String) {
+            _playProgress.add((
+              id: m['id'] as String,
+              frac: (m['frac'] as num?)?.toDouble() ?? 0,
+              remain: (m['remain'] as num?)?.toInt() ?? 0,
+            ));
+          }
+        case 'playEnded':
+          final m = call.arguments as Map?;
+          if (m != null && m['id'] is String) _playEnded.add(m['id'] as String);
+      }
+    });
+  }
+
+  static Stream<({double sec, double level})> get voiceRecordTicks {
+    _bindVoice();
+    return _recTicks.stream;
+  }
+
+  static Stream<void> get voiceRecordAutoStops {
+    _bindVoice();
+    return _recAutoStops.stream;
+  }
+
+  static Stream<({String id, double frac, int remain})> get voicePlayProgress {
+    _bindVoice();
+    return _playProgress.stream;
+  }
+
+  static Stream<String> get voicePlayEnded {
+    _bindVoice();
+    return _playEnded.stream;
+  }
+
+  static Future<bool> requestMicPermission() async {
+    if (!Platform.isAndroid) return false;
+    _bindVoice();
+    try {
+      return await _voiceCh.invokeMethod<bool>('requestMicPermission') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> startVoiceRecord() async {
+    if (!Platform.isAndroid) return false;
+    _bindVoice();
+    try {
+      return await _voiceCh.invokeMethod<bool>('startRecord') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<({bool tooShort, Uint8List? wav, int dur, List<int> peaks})> stopVoiceRecord() async {
+    if (!Platform.isAndroid) return (tooShort: true, wav: null, dur: 0, peaks: const <int>[]);
+    try {
+      final res = await _voiceCh.invokeMapMethod<String, dynamic>('stopRecord');
+      if (res == null || res['tooShort'] == true || res['wav'] is! Uint8List) {
+        return (tooShort: true, wav: null, dur: 0, peaks: const <int>[]);
+      }
+      final peaks = (res['peaks'] as List?)?.map((e) => (e as num).toInt()).toList() ?? const <int>[];
+      return (tooShort: false, wav: res['wav'] as Uint8List, dur: (res['dur'] as num?)?.toInt() ?? 1, peaks: peaks);
+    } catch (_) {
+      return (tooShort: true, wav: null, dur: 0, peaks: const <int>[]);
+    }
+  }
+
+  static Future<void> cancelVoiceRecord() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _voiceCh.invokeMethod('cancelRecord');
+    } catch (_) {}
+  }
+
+  static Future<bool> playVoice(String id, Uint8List bytes, {required bool earpiece}) async {
+    if (!Platform.isAndroid) return false;
+    _bindVoice();
+    try {
+      return await _voiceCh.invokeMethod<bool>('playVoice', {'id': id, 'bytes': bytes, 'earpiece': earpiece}) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> setVoiceEarpiece(bool earpiece) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _voiceCh.invokeMethod('setEarpiece', earpiece);
+    } catch (_) {}
+  }
+
+  static Future<void> stopVoicePlay([String? id]) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _voiceCh.invokeMethod('stopPlay', id);
+    } catch (_) {}
+  }
 }

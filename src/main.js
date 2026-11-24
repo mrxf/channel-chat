@@ -1,6 +1,7 @@
 import './style.css';
 import { deriveSession, seal, open, randomId, generateKey, sealChunk, chunkHeader, openChunk } from './crypto.js';
-import { prepareFile, fmtSize, fmtDur, CHUNK, MAX_VIDEO, MAX_IMAGE_RAW, MAX_INFLIGHT, IMAGE_MIME, VIDEO_MIME } from './media.js';
+import { prepareFile, fmtSize, fmtDur, CHUNK, MAX_VIDEO, MAX_IMAGE_RAW, MAX_AUDIO, MAX_INFLIGHT, IMAGE_MIME, VIDEO_MIME, AUDIO_MIME } from './media.js';
+import { createVoiceRecorder, createVoicePlayer, MAX_VOICE_SEC } from './voice.js';
 import { native } from './native.js';
 import { createRunner } from './runner.js';
 import { PERSONAS, getPersona, personaLabel } from './personas.js';
@@ -10,8 +11,8 @@ import { createLanModule } from './lan.js';
 import { DEFAULT_MODEL, createModelPicker } from './models.js';
 
 const $ = (s) => document.querySelector(s);
-// 客户端能力：旧版客户端的 hello/hi 不带 caps。media = 能收附件，dm = 支持私聊
-const CAPS = ['media', 'dm'];
+// 客户端能力：旧版客户端的 hello/hi 不带 caps。media = 能收附件，dm = 支持私聊，audio = 支持语音
+const CAPS = ['media', 'dm', 'audio'];
 const APP_VERSION = __APP_VERSION__;
 document.getElementById('join-ver').textContent = `v${APP_VERSION}`;
 const MAX_SKEW = 10 * 60 * 1000; // 拒绝 10 分钟外的消息（防重放）
@@ -1438,6 +1439,7 @@ $('#clear-btn').onclick = () => { clearConv(); closePops(); };
 $('#leave-btn').onclick = leave;
 
 function leave() {
+  abortVoiceActivity();
   connGen++;
   clearReconnectTimers();
   const ws = state.ws;
@@ -1516,6 +1518,7 @@ function command(text) {
  * ================================================================ */
 function setBoss(on) {
   state.boss = on;
+  if (on) abortVoiceActivity();
   $('#threads').hidden = on;
   $('#decoy').hidden = !on;
   const target = on ? $('#recents li.fake') : [...$('#recents').children].find((li) => li.dataset.conv === state.active);
@@ -1571,7 +1574,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && prefs.blurHide && state.entered) setBoss(true);
   else if (!document.hidden && state.entered) recoverConnection(false);
 });
-window.addEventListener('pagehide', () => { burnAll(); native.mediaClear(); state.session = null; });
+window.addEventListener('pagehide', () => { abortVoiceActivity(); burnAll(); native.mediaClear(); state.session = null; });
 
 /* ================================================================
  *  附件（图片 / 视频）
@@ -1585,8 +1588,76 @@ const hexToBytes = (hex) => Uint8Array.from(hex.match(/../g), (b) => parseInt(b,
 const THUMB_RE = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
 const EYE = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 const PLAY = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg>';
+const STOP_ICO = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+const MIC_ICO = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 10.5a6.5 6.5 0 0 0 13 0"/><path d="M12 17v4"/></svg>';
+
+const voicePlayer = createVoicePlayer();
+const voiceRecorder = createVoiceRecorder({
+  onTick: (sec, level) => {
+    $('#vr-time').textContent = `${fmtDur(sec)} / ${fmtDur(MAX_VOICE_SEC)}`;
+    const bars = $('#vr-meter')?.children;
+    if (bars) {
+      for (let i = 0; i < bars.length; i++) {
+        const wave = Math.sin(sec * 12 + i * 0.9) * 0.35 + 0.65;
+        const h = Math.max(4, Math.min(18, Math.round(4 + level * wave * 14)));
+        bars[i].style.height = `${h}px`;
+      }
+    }
+  },
+  onAutoStop: () => finishVoiceRecording(true),
+});
+
+function setRecordingUI(on) {
+  $('#voice-rec').hidden = !on;
+  $('#input').hidden = on;
+  $('#composer-row').hidden = on;
+  if (on) $('#vr-time').textContent = `0:00 / ${fmtDur(MAX_VOICE_SEC)}`;
+}
+
+/** 老板键 / 退房 / 页面销毁时：瞬间静音 + 停止录音 + 清零并焚毁正在播放的语音 */
+function abortVoiceActivity() {
+  if (voiceRecorder.recording) {
+    voiceRecorder.cancel();
+    setRecordingUI(false);
+  }
+  const playingId = voicePlayer.playingId;
+  if (playingId) {
+    voicePlayer.stop();
+    const it = state.items.find((i) => i.id === playingId);
+    if (it) burn(it, true);
+  }
+}
+
+function normalizePeaks(raw) {
+  if (!Array.isArray(raw) || !raw.length) return [24, 42, 68, 52, 80, 62, 36, 74, 88, 50, 44, 70, 58, 32, 64, 76, 48, 38, 60, 40];
+  return raw.slice(0, 32).map((n) => Math.max(10, Math.min(100, Number(n) | 0)));
+}
 
 function mediaHTML(it, sender) {
+  if (it.mtype === 'audio') {
+    const durStr = it.dur ? ' · ' + fmtDur(it.dur) : '';
+    const head = it.mine
+      ? ''
+      : `<div class="agent-head">${mark}<span class="tool">${esc(t('media.voiceStream', { dur: durStr }))} <i>›</i></span>${whoHTML(sender)}</div>`;
+    const peaks = normalizePeaks(it.peaks);
+    const bars = peaks.map((v) => `<i style="height:${Math.max(18, v)}%"></i>`).join('');
+    return `${head}
+      <div class="v-card">
+        <div class="v-main">
+          <button type="button" class="v-play" ${it.mine ? 'disabled' : ''}>${it.mine ? MIC_ICO : PLAY}</button>
+          <div class="v-bars">${bars}</div>
+          <span class="v-dur">${esc(fmtDur(it.dur || 0))}</span>
+        </div>
+        <div class="v-sub">
+          <span class="v-tag"></span>
+          <span>${esc(fmtSize(it.size))}</span>
+        </div>
+        <div class="v-prog"><i></i></div>
+      </div>
+      <div class="msg-foot ${it.mine ? '' : 'agent-foot'}">
+        ${clearBtnHTML()}
+      </div>`;
+  }
   const mtypeLabel = it.mtype === 'image' ? t('media.image') : t('media.video');
   const durStr = it.dur ? ' · ' + fmtDur(it.dur) : '';
   const label = `${mtypeLabel} · ${fmtSize(it.size)}${durStr}`;
@@ -1608,6 +1679,35 @@ function mediaHTML(it, sender) {
 
 function setMediaStatus(it, status, pct = 0) {
   it.status = status;
+  if (it.mtype === 'audio') {
+    const card = it.el?.querySelector('.v-card');
+    if (!card) return;
+    const tag = card.querySelector('.v-tag');
+    const btn = card.querySelector('.v-play');
+    const many = it.mine && it.total > 1;
+    card.classList.toggle('playing', status === 'viewing');
+    if (btn && !it.mine) {
+      btn.disabled = status !== 'ready' && status !== 'viewing';
+      btn.innerHTML = status === 'viewing' ? STOP_ICO : status === 'opening' || status === 'receiving' ? '<span class="spin"></span>' : PLAY;
+    }
+    const map = {
+      receiving: { text: t('media.receiving', { pct }), cls: '' },
+      sending: { text: t('media.sending', { pct }), cls: '' },
+      ready: { text: t('media.voicePlayOnce'), cls: '' },
+      opening: { text: t('media.opening'), cls: '' },
+      viewing: { text: t('media.voicePlaying'), cls: 'live' },
+      sent: { text: t('media.voiceSent'), cls: '' },
+      delivered: { text: many ? t('media.voiceDeliveredMany', { n: it.recvBy?.size ?? 0, total: it.total }) : t('media.voiceDeliveredOne'), cls: '' },
+      partview: { text: t('media.voicePartview', { n: it.viewBy?.size ?? 0, total: it.total }), cls: '' },
+      viewed: { text: many ? t('media.voiceViewedMany') : t('media.voiceViewedOne'), cls: 'ok' },
+      undelivered: { text: t('media.undelivered'), cls: 'bad' },
+      failed: { text: t('media.failed'), cls: 'bad' },
+    };
+    const info = map[status] || { text: '', cls: '' };
+    tag.className = `v-tag ${info.cls}`;
+    tag.textContent = info.text;
+    return;
+  }
   const over = it.el?.querySelector('.m-over');
   if (!over) return;
   const pill = (html, cls = '') => `<div class="m-pill ${cls}">${html}</div>`;
@@ -1633,9 +1733,10 @@ const inflightBytes = () => state.items.reduce((n, i) => n + (i.kind === 'media'
 
 function onMediaMeta(m, p, conv) {
   const mtype = m.mtype;
-  if (mtype !== 'image' && mtype !== 'video') return;
-  if (!(mtype === 'image' ? IMAGE_MIME : VIDEO_MIME).includes(m.mime)) return;
-  const limit = mtype === 'image' ? MAX_IMAGE_RAW : MAX_VIDEO;
+  if (mtype !== 'image' && mtype !== 'video' && mtype !== 'audio') return;
+  const allowed = mtype === 'image' ? IMAGE_MIME : mtype === 'video' ? VIDEO_MIME : AUDIO_MIME;
+  if (!allowed.includes(m.mime)) return;
+  const limit = mtype === 'image' ? MAX_IMAGE_RAW : mtype === 'video' ? MAX_VIDEO : MAX_AUDIO;
   if (!Number.isInteger(m.size) || m.size <= 0 || m.size > limit) return;
   if (m.chunks !== Math.ceil(m.size / CHUNK)) return;
   if (!fresh(m)) return;
@@ -1646,6 +1747,7 @@ function onMediaMeta(m, p, conv) {
     w: Math.max(1, Math.min(10000, m.w | 0 || 16)), h: Math.max(1, Math.min(10000, m.h | 0 || 9)),
     dur: Math.max(0, Math.min(36000, Number(m.dur) || 0)),
     thumb: typeof m.thumb === 'string' && m.thumb.length < 16000 && THUMB_RE.test(m.thumb) ? m.thumb : '',
+    peaks: mtype === 'audio' ? normalizePeaks(m.peaks) : null,
     status: 'receiving', frames: new Array(m.chunks), got: 0, lastAt: Date.now(),
   });
   state.incoming.set(m.id, it);
@@ -1686,33 +1788,46 @@ async function sendFiles(files) {
   for (const f of [...files].slice(0, 5)) await sendMedia(f);
 }
 
-async function sendMedia(file) {
-  if (state.boss) return toast(t('toast.bossBusy'));
-  if (!state.serverMedia) return toast(t('toast.oldServerMedia'));
+function mediaBlocker(cap = 'media') {
+  if (state.boss) return t('toast.bossBusy');
+  if (!state.serverMedia) return t('toast.oldServerMedia');
   const conv = state.active;
   const peer = convPeer(conv);
   if (peer) {
     const who = labelOf(peer).text;
-    if (!peer.online) return toast(t('toast.peerOfflineMedia', { who }));
-    if (!hasCap(peer, 'media')) return toast(t('toast.peerOldMedia', { who }));
-    if (!state.serverDirect) return toast(t('toast.oldServerDmMedia'));
-  } else {
-    const others = onlineMembers();
-    if (!others.length) return toast(t('toast.nobodyOnlineMedia'));
-    const sep = getLang() === 'en' ? ', ' : '、';
-    const old = others.filter((p) => !hasCap(p, 'media')).map((p) => labelOf(p).text);
-    if (old.length === others.length) return toast(t('toast.peerOldMedia', { who: old.join(sep) }));
-    if (old.length) toast(t('toast.someOldMedia', { names: old.join(sep) }));
+    if (!peer.online) return t('toast.peerOfflineMedia', { who });
+    if (!hasCap(peer, cap)) return t(cap === 'audio' ? 'toast.peerOldVoice' : 'toast.peerOldMedia', { who });
+    if (!state.serverDirect) return t('toast.oldServerDmMedia');
+    return null;
   }
+  const others = onlineMembers();
+  if (!others.length) return t('toast.nobodyOnlineMedia');
+  const sep = getLang() === 'en' ? ', ' : '、';
+  const old = others.filter((p) => !hasCap(p, cap)).map((p) => labelOf(p).text);
+  if (old.length === others.length) return t(cap === 'audio' ? 'toast.peerOldVoice' : 'toast.peerOldMedia', { who: old.join(sep) });
+  if (old.length) toast(t(cap === 'audio' ? 'toast.someOldVoice' : 'toast.someOldMedia', { names: old.join(sep) }));
+  return null;
+}
+
+async function sendMedia(file) {
+  const err = mediaBlocker('media');
+  if (err) return toast(err);
   let prep;
   try { prep = await prepareFile(file); } catch (e) { return toast(e.message); }
+  return sendPreparedMedia(prep, 'media');
+}
+
+async function sendPreparedMedia(prep, cap = 'media') {
+  const conv = state.active;
+  const peer = convPeer(conv);
   const { bytes } = prep;
   const ws = state.ws;
   const id = randomId();
   const total = Math.max(1, Math.ceil(bytes.length / CHUNK));
   const meta = {
     t: 'media', id, ts: Date.now(), mtype: prep.kind, mime: prep.mime,
-    size: bytes.length, chunks: total, w: prep.w, h: prep.h, dur: Math.round(prep.dur || 0), thumb: prep.thumb,
+    size: bytes.length, chunks: total, w: prep.w, h: prep.h, dur: Math.round(prep.dur || 0), thumb: prep.thumb || '',
+    ...(prep.peaks ? { peaks: prep.peaks } : {}),
   };
   // 私聊：分块前加上目标连接 ID，服务器只转发给对方
   const conn = peer?.conn;
@@ -1721,7 +1836,7 @@ async function sendMedia(file) {
   state.seen.add(id);
   const it = addItem({
     id, conv, kind: 'media', mine: true, ...meta, status: 'sending',
-    ...recipients(conv, 'media'), recvBy: new Set(), viewBy: new Set(),
+    ...recipients(conv, cap), recvBy: new Set(), viewBy: new Set(),
   });
   try {
     for (let i = 0; i < total; i++) {
@@ -1754,8 +1869,66 @@ async function sendMedia(file) {
   }
 }
 
+async function startVoiceRecording() {
+  if (voiceRecorder.recording) return;
+  const err = mediaBlocker('audio');
+  if (err) return toast(err);
+  // 若正在听语音，先静音并焚毁，避免录进外放声
+  if (voicePlayer.playingId) {
+    const prev = state.items.find((i) => i.id === voicePlayer.playingId);
+    voicePlayer.stop();
+    if (prev) burn(prev, true);
+  }
+  try {
+    await voiceRecorder.start();
+    setRecordingUI(true);
+  } catch {
+    voiceRecorder.cancel();
+    setRecordingUI(false);
+    toast(t('toast.voiceNoMic'));
+  }
+}
+
+async function finishVoiceRecording(sendNow) {
+  if (!voiceRecorder.recording) return;
+  if (!sendNow) {
+    voiceRecorder.cancel();
+    setRecordingUI(false);
+    $('#input').focus();
+    return;
+  }
+  const prep = voiceRecorder.stop();
+  setRecordingUI(false);
+  $('#input').focus();
+  if (!prep || prep.tooShort) {
+    toast(t('toast.voiceTooShort'));
+    return;
+  }
+  const err = mediaBlocker('audio');
+  if (err) {
+    prep.bytes.fill(0);
+    return toast(err);
+  }
+  await sendPreparedMedia(prep, 'audio');
+}
+
+$('#voice-btn').onclick = () => startVoiceRecording();
+$('#vr-cancel').onclick = () => finishVoiceRecording(false);
+$('#vr-send').onclick = () => finishVoiceRecording(true);
+
 async function viewMedia(it) {
+  if (it.mtype === 'audio' && it.status === 'viewing') {
+    // 单次播放：播放中再次点击 = 立即停止、清零内存并焚毁
+    voicePlayer.stop(it.id);
+    burn(it);
+    return;
+  }
   if (it.status !== 'ready' || !it.frames) return;
+  if (it.mtype === 'audio' && voicePlayer.playingId && voicePlayer.playingId !== it.id) {
+    const prev = state.items.find((i) => i.id === voicePlayer.playingId);
+    voicePlayer.stop();
+    if (prev) burn(prev, true);
+  }
   setMediaStatus(it, 'opening');
   const plain = new Uint8Array(it.size);
   let off = 0;
@@ -1771,6 +1944,37 @@ async function viewMedia(it) {
   it.frames = null;
   if (off !== it.size || !it.el) { plain.fill(0); setMediaStatus(it, 'failed'); return; }
   replyTo(it, { t: 'mview', id: it.id });
+
+  if (it.mtype === 'audio') {
+    try {
+      setMediaStatus(it, 'viewing');
+      const bars = [...(it.el.querySelectorAll('.v-bars i') || [])];
+      const prog = it.el.querySelector('.v-prog i');
+      const durEl = it.el.querySelector('.v-dur');
+      await voicePlayer.play(it.id, plain, {
+        onProgress: (frac, remain) => {
+          if (!it.el) return;
+          const lit = Math.ceil(frac * bars.length);
+          for (let i = 0; i < bars.length; i++) bars[i].classList.toggle('on', i < lit);
+          if (prog) prog.style.width = `${(frac * 100).toFixed(1)}%`;
+          if (durEl) durEl.textContent = fmtDur(remain);
+        },
+        onEnded: () => {
+          burn(it);
+        },
+      });
+      // 兜底：防止音频事件异常导致长期残留
+      it.capTimer = setTimeout(() => {
+        voicePlayer.stop(it.id);
+        burn(it);
+      }, ((it.dur || 60) + 15) * 1000);
+    } catch {
+      plain.fill(0);
+      setMediaStatus(it, 'failed');
+      setTimeout(() => burn(it), 3000);
+    }
+    return;
+  }
 
   const box = it.el.querySelector('.m-box');
   const N = state.cfg.mview;
@@ -1832,6 +2036,7 @@ function countdown(it, sec) {
 
 function cleanupMedia(it) {
   clearTimeout(it.countdown); clearTimeout(it.capTimer);
+  if (it.mtype === 'audio') voicePlayer.stop(it.id);
   state.incoming.delete(it.id);
   if (it.frames) { it.frames.forEach((f) => f?.fill(0)); it.frames = null; }
   if (it.canvas) {
@@ -1863,7 +2068,7 @@ $('#threads').addEventListener('click', (e) => {
   if (!card) return;
   const it = state.items.find((i) => i.id === card.dataset.id);
   if (!it) return;
-  if (e.target.closest('.m-view')) viewMedia(it);
+  if (e.target.closest('.m-view, .v-play')) viewMedia(it);
   else if (it.canvas || it.img) card.querySelector('.m-box').classList.toggle('zoom');
 });
 

@@ -91,6 +91,18 @@ class SettingsPage extends StatelessWidget {
                   },
                 ),
               ),
+              if (defaultTargetPlatform == TargetPlatform.android)
+                _Row(
+                  title: '语音默认听筒播放',
+                  subtitle: '防外放泄密且阻止系统内录，贴近耳朵自动息屏；播放时也可随时切换外放',
+                  trailing: Switch(
+                    value: prefs.voiceEarpiece,
+                    onChanged: (v) {
+                      prefs.setVoiceEarpiece(v);
+                      Native.setVoiceEarpiece(v);
+                    },
+                  ),
+                ),
               _Row(title: '震动反馈', trailing: Switch(value: prefs.haptics, onChanged: prefs.setHaptics)),
             ]),
             const _Section('安全'),

@@ -16,10 +16,12 @@ import 'crypto.dart';
 
 const maxVideo = 50 * 1024 * 1024;
 const maxImageRaw = 40 * 1024 * 1024;
+const maxAudio = 5 * 1024 * 1024;
 const maxGif = 10 * 1024 * 1024;
 const maxInflight = 300 * 1024 * 1024;
 const imageMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const videoMime = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v'];
+const audioMime = ['audio/wav', 'audio/mp4', 'audio/webm', 'audio/ogg'];
 const _extMime = {'mp4': 'video/mp4', 'm4v': 'video/x-m4v', 'mov': 'video/quicktime', 'webm': 'video/webm'};
 const _imageMaxSide = 2048;
 const _thumbSide = 32;
@@ -33,13 +35,14 @@ String fmtSize(int n) => n < 1024
 String fmtDur(num s) => '${s ~/ 60}:${(s.round() % 60).toString().padLeft(2, '0')}';
 
 class PreparedMedia {
-  PreparedMedia({required this.kind, required this.mime, required this.bytes, required this.w, required this.h, this.dur = 0, this.thumb = ''});
-  final String kind; // image | video
+  PreparedMedia({required this.kind, required this.mime, required this.bytes, required this.w, required this.h, this.dur = 0, this.thumb = '', this.peaks});
+  final String kind; // image | video | audio
   final String mime;
   final Uint8List bytes;
   final int w, h;
   final num dur;
   final String thumb; // data:image/jpeg;base64,...（桌面端只接受这个格式）
+  final List<int>? peaks;
 }
 
 class MediaError implements Exception {

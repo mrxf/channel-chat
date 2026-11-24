@@ -164,11 +164,23 @@
 
         <footer class="composer-wrap">
           <form class="composer" id="composer">
+            <div class="voice-rec" id="voice-rec" hidden>
+              <span class="vr-dot"></span>
+              <span class="vr-label" data-i18n="composer.voiceRec">录音中 · 纯内存不落盘</span>
+              <div class="vr-meter" id="vr-meter"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <span class="vr-time" id="vr-time">0:00 / 1:00</span>
+              <div class="spacer"></div>
+              <button type="button" class="ghost-btn" id="vr-cancel" data-i18n="composer.voiceCancel">取消</button>
+              <button type="button" class="send-btn" id="vr-send" data-i18n="composer.voiceSend">发送语音</button>
+            </div>
             <textarea id="input" rows="1" maxlength="4000" data-i18n-placeholder="composer.placeholder" placeholder="给 ChatBuddy 发送消息…（Enter 发送，Shift+Enter 换行）"></textarea>
-            <div class="composer-row">
+            <div class="composer-row" id="composer-row">
               <button type="button" class="icon ghost" id="act-btn" data-i18n-title="composer.actTitle" title="快捷动作（拍一拍）">＋</button>
               <button type="button" class="icon ghost" id="attach-btn" data-i18n-title="composer.attachTitle" title="发送图片 / 视频（端到端加密 · 阅后即焚）">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l8-8"/></svg>
+              </button>
+              <button type="button" class="icon ghost" id="voice-btn" data-i18n-title="composer.voiceTitle" title="发送语音（纯内存录音 · 单次播完即焚）">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 10.5a6.5 6.5 0 0 0 13 0"/><path d="M12 17v4M9 21h6"/></svg>
               </button>
               <button type="button" class="icon ghost wipe-btn empty" id="wipe-btn" title="清屏" aria-label="Clear screen">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>

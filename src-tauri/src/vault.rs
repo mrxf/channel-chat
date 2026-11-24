@@ -11,7 +11,17 @@ use zeroize::Zeroize;
 pub const SCHEME: &str = "vault";
 const MAX_BYTES: usize = 60 * 1024 * 1024;
 const MAX_RANGE: usize = 4 * 1024 * 1024; // 单次响应最多 4MB，播放器会继续按需请求
-const ALLOWED_MIME: &[&str] = &["image/gif", "video/mp4", "video/quicktime", "video/webm", "video/x-m4v"];
+const ALLOWED_MIME: &[&str] = &[
+    "image/gif",
+    "video/mp4",
+    "video/quicktime",
+    "video/webm",
+    "video/x-m4v",
+    "audio/wav",
+    "audio/mp4",
+    "audio/webm",
+    "audio/ogg",
+];
 
 struct Entry {
     data: Vec<u8>,

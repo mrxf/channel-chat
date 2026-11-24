@@ -112,8 +112,12 @@ class ChatItem extends Entry {
   Timer? capTimer;
   DateTime? cdStart;
   int cdSec = 0;
+  List<int>? peaks;
+  double audioProgress = 0;
+  int? audioRemain;
 
   bool get isVideo => mtype == 'video';
+  bool get isAudio => mtype == 'audio';
 }
 
 class SysNote extends Entry {

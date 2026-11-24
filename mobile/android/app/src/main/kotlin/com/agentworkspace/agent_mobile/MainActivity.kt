@@ -1,11 +1,13 @@
 package com.agentworkspace.agent_mobile
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.Uri
@@ -14,6 +16,8 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -22,9 +26,13 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val MSG_CHANNEL = "messages_v2"
         private const val LEGACY_MSG_CHANNEL = "messages"
+        private const val REQ_RECORD_AUDIO = 4091
     }
 
     private var channel: MethodChannel? = null
+    private var voiceChannel: MethodChannel? = null
+    private var voiceEngine: VoiceEngine? = null
+    private var pendingMicResult: MethodChannel.Result? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -78,10 +86,65 @@ class MainActivity : FlutterActivity() {
             }
         }
         watchNetwork()
+
+        val vch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "agent/voice")
+        voiceChannel = vch
+        val engine = VoiceEngine(applicationContext) { voiceChannel }
+        voiceEngine = engine
+        vch.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "requestMicPermission" -> requestMicPermission(result)
+                "startRecord" -> result.success(engine.startRecord())
+                "stopRecord" -> result.success(engine.stopRecord())
+                "cancelRecord" -> {
+                    engine.cancelRecord()
+                    result.success(null)
+                }
+                "playVoice" -> {
+                    val id = call.argument<String>("id") ?: ""
+                    val bytes = call.argument<ByteArray>("bytes") ?: ByteArray(0)
+                    val earpiece = call.argument<Boolean>("earpiece") ?: true
+                    result.success(engine.playVoice(id, bytes, earpiece))
+                }
+                "setEarpiece" -> {
+                    engine.setEarpiece(call.arguments == true)
+                    result.success(null)
+                }
+                "stopPlay" -> {
+                    engine.stopPlay(call.arguments as? String)
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun requestMicPermission(result: MethodChannel.Result) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            result.success(true)
+            return
+        }
+        pendingMicResult?.success(false)
+        pendingMicResult = result
+        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RECORD_AUDIO)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (requestCode == REQ_RECORD_AUDIO) {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            pendingMicResult?.success(granted)
+            pendingMicResult = null
+            return
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         unwatchNetwork()
+        voiceEngine?.release()
+        voiceEngine = null
+        voiceChannel?.setMethodCallHandler(null)
+        voiceChannel = null
         channel?.setMethodCallHandler(null)
         channel = null
         super.cleanUpFlutterEngine(flutterEngine)
@@ -309,6 +372,8 @@ class MainActivity : FlutterActivity() {
     // Activity 销毁意味着它持有的 FlutterEngine 和内存会话都会一起销毁，常驻通知必须同步撤掉，避免出现“假在线”僵尸通知
     override fun onDestroy() {
         unwatchNetwork()
+        voiceEngine?.release()
+        voiceEngine = null
         KeepAliveService.stop(applicationContext)
         super.onDestroy()
     }

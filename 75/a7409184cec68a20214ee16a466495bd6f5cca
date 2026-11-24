@@ -1,0 +1,22 @@
+mobile/lib/core/version.dart
+  h_595af853e379f3 2
+mobile/pubspec.yaml
+  h_595af853e379f3 19
+package.json
+  h_595af853e379f3 3
+src-tauri/Cargo.lock
+  h_595af853e379f3 13
+src-tauri/Cargo.toml
+  h_595af853e379f3 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "75a7409184cec68a20214ee16a466495bd6f5cca",
+  "prompts": {},
+  "humans": {
+    "h_595af853e379f3": {
+      "author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

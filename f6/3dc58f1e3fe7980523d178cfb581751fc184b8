@@ -1,0 +1,50 @@
+index.html
+  h_595af853e379f3 167-175,177,182-184
+mobile/android/app/src/main/AndroidManifest.xml
+  h_595af853e379f3 9-11
+mobile/android/app/src/main/kotlin/com/agentworkspace/agent_mobile/MainActivity.kt
+  h_595af853e379f3 3,10,19-20,29,33-35,89-139,144-147,375-376
+mobile/android/app/src/main/kotlin/com/agentworkspace/agent_mobile/VoiceEngine.kt
+  h_595af853e379f3 1-564
+mobile/lib/chat/chat_controller.dart
+  h_595af853e379f3 25,42-43,84-86,130-131,212-214,272-273,1040-1043,1059-1062,1073,1120-1122,1126-1128,1132-1133,1138-1139,1155,1165,1174,1218-1248,1250-1256,1258-1260,1278-1296,1335-1338
+mobile/lib/chat/models.dart
+  h_595af853e379f3 115-117,120
+mobile/lib/core/media.dart
+  h_595af853e379f3 19,24,38-39,45
+mobile/lib/core/native.dart
+  h_595af853e379f3 204-325
+mobile/lib/core/prefs.dart
+  h_595af853e379f3 49,102-106
+mobile/lib/ui/chat_page.dart
+  h_595af853e379f3 39-40,43-45,56-61,113-115,269-315,444-446,449-451,665-678,683-685,688-690,710,713-765,767-812,822
+mobile/lib/ui/messages.dart
+  h_595af853e379f3 353-370,392-543
+mobile/lib/ui/settings_page.dart
+  h_595af853e379f3 94-105
+src-tauri/Info.plist
+  h_595af853e379f3 14-15
+src-tauri/src/vault.rs
+  h_595af853e379f3 14-24
+src/i18n.js
+  h_595af853e379f3 107-110,224-233,270-274,400-403,517-526,563-567
+src/main.js
+  h_595af853e379f3 3-4,14-15,1442,1521,1577,1591-1634,1637-1660,1682-1710,1736-1739,1750,1791-1793,1798-1801,1803-1814,1817-1822,1829-1830,1839,1872-1918,1920-1925,1927-1931,1948-1978,2039,2071
+src/media.js
+  h_595af853e379f3 6,14
+src/style.css
+  h_595af853e379f3 581-649
+src/voice.js
+  h_595af853e379f3 1-353
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "f63dc58f1e3fe7980523d178cfb581751fc184b8",
+  "prompts": {},
+  "humans": {
+    "h_595af853e379f3": {
+      "author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

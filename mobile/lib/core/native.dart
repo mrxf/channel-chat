@@ -269,6 +269,16 @@ class Native {
     }
   }
 
+  static Future<bool> requestCallPermissions({required bool video}) async {
+    if (!Platform.isAndroid) return true;
+    _bindVoice();
+    try {
+      return await _voiceCh.invokeMethod<bool>('requestCallPermissions', video) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<bool> startVoiceRecord() async {
     if (!Platform.isAndroid) return false;
     _bindVoice();

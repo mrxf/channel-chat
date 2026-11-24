@@ -47,6 +47,7 @@ class Prefs extends ChangeNotifier {
   bool get protect => _sp.getBool('protect') ?? true;
   bool get haptics => _sp.getBool('haptics') ?? true;
   bool get voiceEarpiece => _sp.getBool('voiceEarpiece') ?? true;
+  String get iceServers => _sp.getString('iceServers') ?? '';
   bool get keepAlive => _sp.getBool('keepAlive') ?? true;
   bool get batteryAsked => _sp.getBool('batteryAsked') ?? false;
   ThemeMode get themeMode => ThemeMode.values.firstWhere((m) => m.name == _sp.getString('theme'), orElse: () => ThemeMode.system);
@@ -101,6 +102,11 @@ class Prefs extends ChangeNotifier {
 
   Future<void> setVoiceEarpiece(bool v) async {
     await _sp.setBool('voiceEarpiece', v);
+    notifyListeners();
+  }
+
+  Future<void> setIceServers(String v) async {
+    await _sp.setString('iceServers', v.trim());
     notifyListeners();
   }
 

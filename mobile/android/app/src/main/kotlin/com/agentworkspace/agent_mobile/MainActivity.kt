@@ -27,12 +27,14 @@ class MainActivity : FlutterActivity() {
         private const val MSG_CHANNEL = "messages_v2"
         private const val LEGACY_MSG_CHANNEL = "messages"
         private const val REQ_RECORD_AUDIO = 4091
+        private const val REQ_CALL_PERMS = 4092
     }
 
     private var channel: MethodChannel? = null
     private var voiceChannel: MethodChannel? = null
     private var voiceEngine: VoiceEngine? = null
     private var pendingMicResult: MethodChannel.Result? = null
+    private var pendingCallPermResult: MethodChannel.Result? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -94,6 +96,7 @@ class MainActivity : FlutterActivity() {
         vch.setMethodCallHandler { call, result ->
             when (call.method) {
                 "requestMicPermission" -> requestMicPermission(result)
+                "requestCallPermissions" -> requestCallPermissions(call.arguments == true, result)
                 "startRecord" -> result.success(engine.startRecord())
                 "stopRecord" -> result.success(engine.stopRecord())
                 "cancelRecord" -> {
@@ -129,11 +132,30 @@ class MainActivity : FlutterActivity() {
         ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RECORD_AUDIO)
     }
 
+    private fun requestCallPermissions(needVideo: Boolean, result: MethodChannel.Result) {
+        val perms = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        if (needVideo) perms.add(Manifest.permission.CAMERA)
+        val missing = perms.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) {
+            result.success(true)
+            return
+        }
+        pendingCallPermResult?.success(false)
+        pendingCallPermResult = result
+        ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQ_CALL_PERMS)
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         if (requestCode == REQ_RECORD_AUDIO) {
             val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
             pendingMicResult?.success(granted)
             pendingMicResult = null
+            return
+        }
+        if (requestCode == REQ_CALL_PERMS) {
+            val granted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            pendingCallPermResult?.success(granted)
+            pendingCallPermResult = null
             return
         }
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)

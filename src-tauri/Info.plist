@@ -12,7 +12,9 @@
   <key>NSLocalNetworkUsageDescription</key>
   <string>Connect to the workspace relay on your local network.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Record end-to-end encrypted burn-after-listening voice messages in memory.</string>
+  <string>Record end-to-end encrypted burn-after-listening voice messages and make voice/video calls.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Capture video for end-to-end encrypted 1-on-1 video calls.</string>
   <key>NSBonjourServices</key>
   <array>
     <string>_agentws._tcp</string>

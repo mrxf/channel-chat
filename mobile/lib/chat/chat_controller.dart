@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:video_player/video_player.dart';
 
+import '../core/call_engine.dart';
 import '../core/crypto.dart';
 import '../core/media.dart';
 import '../core/native.dart';
@@ -22,7 +23,7 @@ import '../core/prefs.dart';
 import '../core/version.dart';
 import 'models.dart';
 
-const _caps = ['media', 'dm', 'audio'];
+const _caps = ['media', 'dm', 'audio', 'call'];
 const _maxSkew = Duration(minutes: 10);
 const _tick = 250;
 const _actionTtl = 20;
@@ -41,9 +42,38 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     _netSub = Native.networkChanges.listen((_) => _onNetworkChanged());
     _voiceProgSub = Native.voicePlayProgress.listen(_onVoiceProgress);
     _voiceEndSub = Native.voicePlayEnded.listen(_onVoiceEnded);
+    call = CallEngine(
+      sendSignal: (peerCid, payload) {
+        final p = members[peerCid];
+        if (p == null || !p.online || p.conn == null) return false;
+        return _send({...payload, 'dm': p.cid}, p.conn);
+      },
+      getIceServers: () => parseIceServers(prefs.iceServers),
+      defaultEarpiece: () => prefs.voiceEarpiece,
+      onIncomingRing: () {
+        if (prefs.haptics) HapticFeedback.heavyImpact();
+        if (!_foreground && prefs.notify) {
+          Native.notify('你有一条新的互动提醒', count: 1);
+        }
+      },
+      onError: toast,
+      onEnded: (reason, dur) {
+        final msg = switch (reason) {
+          'hangup' => dur > 0 ? '通话已结束（${dur ~/ 60}:${(dur % 60).toString().padLeft(2, '0')}）' : '已取消呼叫',
+          'cancel' => '已取消呼叫',
+          'reject' => '对方已拒接',
+          'busy' => '对方正在通话中',
+          'timeout' => '对方无应答',
+          'offline' => '对方已离线，通话中断',
+          _ => '通话连接失败（跨网请在设置中配置 STUN / TURN）',
+        };
+        toast(msg);
+      },
+    );
   }
 
   final Prefs prefs;
+  late final CallEngine call;
 
   // 会话
   String name = '';
@@ -127,6 +157,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
 
   void leave() {
     final ws = _ws;
+    call.hangup('hangup');
     stopActiveVoice(burnNow: true);
     Native.cancelVoiceRecord();
     _burnAll();
@@ -274,6 +305,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
     _netDebounce?.cancel();
     _probeTimer?.cancel();
     leave();
+    call.dispose();
     super.dispose();
   }
 
@@ -439,6 +471,67 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
   Member? convPeer(String conv) => isDm(conv) ? members[conv.substring(2)] : null;
   List<Member> get onlineMembers => members.values.where((p) => p.online).toList();
 
+  /// 1 对 1 通话目标：私聊直接呼叫对方；群聊中若恰好只有 1 位在线成员也可直接呼叫
+  ({Member? peer, String? reason}) resolveCallTarget() {
+    final dmPeer = convPeer(active);
+    if (dmPeer != null) return (peer: dmPeer, reason: null);
+    final on = onlineMembers;
+    if (on.length == 1) return (peer: on.first, reason: null);
+    if (on.length > 1) return (peer: null, reason: '仅支持 1 对 1 通话，请先在侧栏进入私聊');
+    return (peer: null, reason: '当前没有可呼叫的在线成员');
+  }
+
+  Future<void> startDirectCall({required bool video}) async {
+    if (call.active) {
+      toast('当前正在通话中');
+      return;
+    }
+    final res = resolveCallTarget();
+    final peer = res.peer;
+    if (peer == null) {
+      toast(res.reason ?? '无法发起通话');
+      return;
+    }
+    if (!peer.online) {
+      toast('${labelOf(peer).text} 已离线，无法发起通话');
+      return;
+    }
+    if (!peer.hasCap('call')) {
+      toast('${labelOf(peer).text} 的客户端版本较旧，暂不支持实时通话');
+      return;
+    }
+    final okPerm = await Native.requestCallPermissions(video: video);
+    if (!okPerm) {
+      toast(video ? '需要麦克风和摄像头权限才能视频通话' : '需要麦克风权限才能语音通话');
+      return;
+    }
+    stopActiveVoice(burnNow: true);
+    Native.cancelVoiceRecord();
+    await call.startCall(peer.cid, wantVideo: video);
+  }
+
+  Future<void> acceptDirectCall({required bool video}) async {
+    final okPerm = await Native.requestCallPermissions(video: video);
+    if (!okPerm) {
+      toast(video ? '需要麦克风和摄像头权限才能视频接听' : '需要麦克风权限才能接听通话');
+      return;
+    }
+    stopActiveVoice(burnNow: true);
+    Native.cancelVoiceRecord();
+    await call.acceptCall(wantVideo: video);
+  }
+
+  Future<void> toggleCallCam() async {
+    if (!call.camOn) {
+      final okPerm = await Native.requestCallPermissions(video: true);
+      if (!okPerm) {
+        toast('需要摄像头权限才能开启视频');
+        return;
+      }
+    }
+    await call.toggleCam();
+  }
+
   String _cleanName(Object? n) {
     if (n is! String || n.trim().isEmpty) return 'peer';
     final t = n.trim();
@@ -548,6 +641,7 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
   void _memberGone(Member p) {
     p.online = false;
     p.conn = null;
+    call.onPeerOffline(p.cid);
     _sys('{who} 已离开', cid: p.cid);
     if (_timeline.containsKey(dmConv(p.cid))) _sys('{who} 已离开', cid: p.cid, conv: dmConv(p.cid));
     _dropFromNeed(p.cid);
@@ -648,6 +742,10 @@ class ChatController extends ChangeNotifier with WidgetsBindingObserver {
         break;
       case 'burn':
         _burnConv(conv);
+        break;
+      case 'call':
+        if (m['dm'] != cid) return;
+        call.handleSignal(p.cid, m);
         break;
     }
   }

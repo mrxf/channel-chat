@@ -2,6 +2,7 @@ import './style.css';
 import { deriveSession, seal, open, randomId, generateKey, sealChunk, chunkHeader, openChunk } from './crypto.js';
 import { prepareFile, fmtSize, fmtDur, CHUNK, MAX_VIDEO, MAX_IMAGE_RAW, MAX_AUDIO, MAX_INFLIGHT, IMAGE_MIME, VIDEO_MIME, AUDIO_MIME } from './media.js';
 import { createVoiceRecorder, createVoicePlayer, MAX_VOICE_SEC } from './voice.js';
+import { createCallManager, parseIceServers } from './call.js';
 import { native } from './native.js';
 import { createRunner } from './runner.js';
 import { PERSONAS, getPersona, personaLabel } from './personas.js';
@@ -11,8 +12,8 @@ import { createLanModule } from './lan.js';
 import { DEFAULT_MODEL, createModelPicker } from './models.js';
 
 const $ = (s) => document.querySelector(s);
-// 客户端能力：旧版客户端的 hello/hi 不带 caps。media = 能收附件，dm = 支持私聊，audio = 支持语音
-const CAPS = ['media', 'dm', 'audio'];
+// 客户端能力：旧版客户端的 hello/hi 不带 caps。media = 能收附件，dm = 支持私聊，audio = 支持语音，call = 支持 1v1 实时通话
+const CAPS = ['media', 'dm', 'audio', 'call'];
 const APP_VERSION = __APP_VERSION__;
 document.getElementById('join-ver').textContent = `v${APP_VERSION}`;
 const MAX_SKEW = 10 * 60 * 1000; // 拒绝 10 分钟外的消息（防重放）
@@ -25,6 +26,7 @@ const prefs = Object.assign(
     name: '', server: '', recentServers: [], theme: null, blurHide: false, notify: true, runner: true,
     runnerOpen: true, protect: false, customActions: [], persona: 'dev', rememberKey: true,
     recentNames: {}, dmNames: {}, memberLabel: 'name', lang: DEFAULT_LANG, model: DEFAULT_MODEL,
+    iceServers: '',
   },
   await native.loadPrefs(),
 );
@@ -781,6 +783,7 @@ function dropFromNeed(cid) {
 function memberGone(p) {
   p.online = false;
   p.conn = null;
+  callMgr.onPeerOffline(p.cid);
   sys(t('msg.sysLeave', { who: whoHTML(p, 'who') }));
   if (threadEl(dmConv(p.cid))) sys(t('msg.sysLeave', { who: whoHTML(p, 'who') }), dmConv(p.cid));
   dropFromNeed(p.cid);
@@ -886,6 +889,10 @@ function onInner(from, m) {
       break;
     case 'burn':
       burnConv(conv);
+      break;
+    case 'call':
+      if (m.dm !== state.cid) return;
+      callMgr.handleSignal(p.cid, m);
       break;
   }
 }
@@ -1440,6 +1447,7 @@ $('#leave-btn').onclick = leave;
 
 function leave() {
   abortVoiceActivity();
+  callMgr.destroy();
   connGen++;
   clearReconnectTimers();
   const ws = state.ws;
@@ -1519,6 +1527,8 @@ function command(text) {
 function setBoss(on) {
   state.boss = on;
   if (on) abortVoiceActivity();
+  callMgr.setBossHidden(on);
+  syncCallUI();
   $('#threads').hidden = on;
   $('#decoy').hidden = !on;
   const target = on ? $('#recents li.fake') : [...$('#recents').children].find((li) => li.dataset.conv === state.active);
@@ -1574,7 +1584,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && prefs.blurHide && state.entered) setBoss(true);
   else if (!document.hidden && state.entered) recoverConnection(false);
 });
-window.addEventListener('pagehide', () => { abortVoiceActivity(); burnAll(); native.mediaClear(); state.session = null; });
+window.addEventListener('pagehide', () => { abortVoiceActivity(); callMgr.destroy(); burnAll(); native.mediaClear(); state.session = null; });
 
 /* ================================================================
  *  附件（图片 / 视频）
@@ -1592,6 +1602,207 @@ const STOP_ICO = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentC
 const MIC_ICO = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 10.5a6.5 6.5 0 0 0 13 0"/><path d="M12 17v4"/></svg>';
 
 const voicePlayer = createVoicePlayer();
+
+/* ================================================================
+ *  1 对 1 实时语音 / 视频通话（WebRTC P2P + E2EE 信令）
+ * ================================================================ */
+let callStageMinimized = false;
+
+function resolveCallTarget() {
+  const dmPeer = convPeer(state.active);
+  if (dmPeer) return { peer: dmPeer, reason: null };
+  const on = onlineMembers();
+  if (on.length === 1) return { peer: on[0], reason: null };
+  if (on.length > 1) return { peer: null, reason: 'needDm' };
+  return { peer: null, reason: 'noPeer' };
+}
+
+function updateCallButtons() {
+  const ab = $('#call-audio-btn');
+  const vb = $('#call-video-btn');
+  if (!ab || !vb) return;
+  if (state.boss || !state.entered) {
+    ab.hidden = true;
+    vb.hidden = true;
+    return;
+  }
+  const { peer } = resolveCallTarget();
+  const active = callMgr.state.active;
+  const show = !!peer || active;
+  ab.hidden = !show;
+  vb.hidden = !show;
+  ab.classList.toggle('in-call', active && !callMgr.state.video);
+  vb.classList.toggle('in-call', active && callMgr.state.video);
+}
+
+const callMgr = createCallManager({
+  sendSignal: (peerCid, payload) => {
+    const p = state.members.get(peerCid);
+    if (!p?.online || !p.conn) return false;
+    return send({ ...payload, dm: p.cid }, p.conn);
+  },
+  getIceServers: () => parseIceServers(prefs.iceServers),
+  onStateChange: (cs) => {
+    if (cs.phase === 'ringing') {
+      callStageMinimized = false;
+      native.attention();
+      if (prefs.notify && (!isReading() || state.boss)) {
+        native.notify(t('notify.action'));
+      }
+    } else if (cs.phase === 'idle') {
+      callStageMinimized = false;
+    }
+    syncCallUI();
+    updateCallButtons();
+  },
+  onRemoteStream: (stream) => {
+    const rv = $('#call-remote-video');
+    const ra = $('#call-remote-audio');
+    if (rv) {
+      rv.srcObject = stream;
+      rv.muted = state.boss;
+      if (stream) rv.play?.().catch(() => {});
+    }
+    if (ra) {
+      ra.srcObject = stream;
+      ra.muted = state.boss;
+      if (stream) ra.play?.().catch(() => {});
+    }
+    syncCallUI();
+  },
+  onLocalStream: (stream) => {
+    const lv = $('#call-local-video');
+    if (lv) {
+      lv.srcObject = stream;
+      if (stream) lv.play?.().catch(() => {});
+    }
+    syncCallUI();
+  },
+  onError: (code) => {
+    const map = {
+      unsupported: 'call.errUnsupported',
+      perm_mic: 'call.errPermMic',
+      perm_av: 'call.errPermAv',
+      no_device_mic: 'call.errNoDevice',
+      no_device_av: 'call.errNoDevice',
+      offline: 'call.endOffline',
+    };
+    toast(t(map[code] || 'call.errFailed'));
+  },
+  onEnded: (reason, _peerCid, dur) => {
+    if (state.boss) return;
+    const map = {
+      hangup: () => (dur > 0 ? t('call.endHangup', { dur: fmtDur(dur) }) : t('call.endCancel')),
+      cancel: () => t('call.endCancel'),
+      reject: () => t('call.endReject'),
+      busy: () => t('call.endBusy'),
+      timeout: () => t('call.endTimeout'),
+      offline: () => t('call.endOffline'),
+      error: () => t('call.errFailed'),
+    };
+    toast((map[reason] || map.hangup)());
+  },
+});
+
+function syncCallUI() {
+  const cs = callMgr.state;
+  const bar = $('#call-bar');
+  const stage = $('#call-stage');
+  const rv = $('#call-remote-video');
+  const ra = $('#call-remote-audio');
+  if (rv) rv.muted = state.boss;
+  if (ra) ra.muted = state.boss;
+  if (!bar || !stage) return;
+
+  if (!cs.active || state.boss) {
+    bar.hidden = true;
+    stage.hidden = true;
+    return;
+  }
+
+  const peer = state.members.get(cs.peerCid);
+  const who = peer ? labelOf(peer).text : 'peer';
+  bar.hidden = false;
+  bar.className = `call-bar ${cs.phase}`;
+  $('#call-tag').textContent = cs.video ? t('call.videoTag') : t('call.audioTag');
+
+  const info = $('#call-info');
+  const timeEl = $('#call-time');
+  const flagEl = $('#call-peer-flag');
+  if (cs.phase === 'calling') {
+    info.textContent = t('call.calling', { who });
+    timeEl.hidden = true;
+  } else if (cs.phase === 'ringing') {
+    info.textContent = t(cs.video ? 'call.ringingVideo' : 'call.ringingAudio', { who });
+    timeEl.hidden = true;
+  } else if (cs.phase === 'connecting') {
+    info.textContent = t('call.connecting');
+    timeEl.hidden = true;
+  } else {
+    info.textContent = t('call.connected', { who });
+    timeEl.textContent = fmtDur(cs.duration);
+    timeEl.hidden = false;
+  }
+
+  if (cs.phase === 'connected' && !cs.peerMicOn) {
+    flagEl.textContent = t('call.peerMuted');
+    flagEl.hidden = false;
+  } else {
+    flagEl.hidden = true;
+  }
+
+  const isRinging = cs.phase === 'ringing';
+  $('#call-ring-acts').hidden = !isRinging;
+  $('#call-live-acts').hidden = isRinging;
+  $('#call-accept-video').hidden = !cs.video;
+
+  const micBtn = $('#call-mic-btn');
+  const camBtn = $('#call-cam-btn');
+  micBtn.classList.toggle('off', !cs.micOn);
+  camBtn.classList.toggle('on', cs.camOn);
+  camBtn.classList.toggle('off', cs.video && !cs.camOn);
+
+  const hasVideoStage = cs.video && !isRinging;
+  $('#call-stage-toggle').hidden = !hasVideoStage;
+  stage.hidden = !hasVideoStage || callStageMinimized;
+  if (hasVideoStage) {
+    $('#call-remote-name').textContent = who;
+    $('#call-remote-off').hidden = cs.peerCamOn;
+    $('#call-local-video').hidden = !cs.camOn;
+  }
+}
+
+async function startDirectCall(video) {
+  if (state.boss) { toast(t('toast.bossBusy')); return; }
+  if (callMgr.state.active) { toast(t('call.busy')); return; }
+  const { peer, reason } = resolveCallTarget();
+  if (!peer) {
+    toast(t(reason === 'needDm' ? 'call.needDm' : 'call.noPeer'));
+    return;
+  }
+  if (!peer.online) { toast(t('call.peerOffline', { who: labelOf(peer).text })); return; }
+  if (!hasCap(peer, 'call')) { toast(t('call.peerOld', { who: labelOf(peer).text })); return; }
+  abortVoiceActivity();
+  callStageMinimized = false;
+  await callMgr.startCall(peer.cid, { video });
+}
+
+$('#call-audio-btn').onclick = () => startDirectCall(false);
+$('#call-video-btn').onclick = () => startDirectCall(true);
+$('#call-accept-audio').onclick = () => { abortVoiceActivity(); callMgr.acceptCall({ video: false }); };
+$('#call-accept-video').onclick = () => { abortVoiceActivity(); callMgr.acceptCall({ video: true }); };
+$('#call-reject').onclick = () => callMgr.rejectCall();
+$('#call-hangup').onclick = () => callMgr.hangup();
+$('#call-mic-btn').onclick = () => callMgr.toggleMic();
+$('#call-cam-btn').onclick = () => { callStageMinimized = false; callMgr.toggleCam(); };
+$('#call-stage-toggle').onclick = () => { callStageMinimized = !callStageMinimized; syncCallUI(); };
+$('#call-stage-min').onclick = () => { callStageMinimized = true; syncCallUI(); };
+
+const iceInput = $('#ice-servers');
+if (iceInput) {
+  iceInput.value = prefs.iceServers || '';
+  iceInput.onchange = () => { prefs.iceServers = iceInput.value.trim(); savePrefs(); };
+}
 const voiceRecorder = createVoiceRecorder({
   onTick: (sec, level) => {
     $('#vr-time').textContent = `${fmtDur(sec)} / ${fmtDur(MAX_VOICE_SEC)}`;
@@ -2170,7 +2381,7 @@ function renderHeader() {
   const el = $('#conv-tag');
   if (!el) return;
   const peer = convPeer(state.active);
-  if (state.boss || !state.entered) { el.hidden = true; return; }
+  if (state.boss || !state.entered) { el.hidden = true; updateCallButtons(); return; }
   if (peer) {
     el.innerHTML = `${whoHTML(peer, 'who')}${peer.online ? '' : `<span class="off">${esc(t('top.dmOffline'))}</span>`}`;
     el.title = t('top.dmTitle');
@@ -2182,6 +2393,7 @@ function renderHeader() {
     el.title = on.length ? t('top.groupTitle', { n: on.length + 1, names: on.map((p) => labelOf(p).text).join(sep) }) : '';
   }
   el.hidden = false;
+  updateCallButtons();
 }
 
 function renameRecent(li) {
@@ -2308,6 +2520,7 @@ function applyLanguage(lang, persist = false) {
     applyCfgUI();
     renderStatusText();
     renderHeader();
+    syncCallUI();
     renderRecents();
     renderActions();
     if (!pops.actions.hidden) updateActPreview();

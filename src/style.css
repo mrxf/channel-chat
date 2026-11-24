@@ -647,3 +647,87 @@ kbd { font: 10.5px ui-monospace, Menlo, monospace; border: 1px solid var(--line)
 .v-prog { position: absolute; left: 0; right: 0; bottom: 0; height: 2.5px; background: color-mix(in srgb, var(--line) 70%, transparent); }
 .v-prog i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.08s linear; }
 [data-theme='dark'] .v-prog i { background: #d97757; }
+
+/* ---------------- 1 对 1 实时语音 / 视频通话 ---------------- */
+.call-top-btn { color: var(--muted); }
+.call-top-btn:hover { color: var(--brand); }
+.call-top-btn.in-call { color: var(--brand); background: var(--brand-soft); }
+
+.call-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;
+  margin: 6px 18px 0; padding: 7px 12px;
+  border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface); font-size: 12.5px; color: var(--text);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+.call-bar[hidden] { display: none; }
+.call-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+  flex: none; animation: vr-pulse 1.4s ease-in-out infinite;
+}
+.call-bar.ringing .call-dot, .call-bar.calling .call-dot { background: #e0a030; }
+.call-tag {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  padding: 2px 6px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border);
+  flex: none;
+}
+.call-info { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-time { font-family: var(--mono); font-size: 12px; color: var(--muted); flex: none; }
+.call-peer-flag {
+  font-size: 11px; color: var(--muted); padding: 1px 6px;
+  border-radius: 99px; background: var(--bg); flex: none;
+}
+.call-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.call-actions[hidden] { display: none; }
+.call-act {
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  border-radius: 7px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+}
+.call-act.accept { background: var(--good); color: #fff; border-color: transparent; }
+.call-act.accept:hover { filter: brightness(1.06); }
+.call-act.danger { background: var(--bad); color: #fff; border-color: transparent; }
+.call-act.danger:hover { filter: brightness(1.06); }
+.call-ico {
+  width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); display: inline-flex;
+  align-items: center; justify-content: center; cursor: pointer;
+}
+.call-ico:hover { border-color: var(--brand); color: var(--brand); }
+.call-ico.off { background: rgba(217, 79, 79, 0.14); color: var(--bad); border-color: rgba(217, 79, 79, 0.35); }
+.call-ico.on { background: var(--brand-soft); color: var(--brand); border-color: var(--brand); }
+
+.call-stage {
+  position: relative; margin: 8px 18px 0; border-radius: 12px; overflow: hidden;
+  background: #141413; border: 1px solid var(--border);
+  height: 290px; flex: none; display: flex; align-items: center; justify-content: center;
+}
+.call-stage[hidden] { display: none; }
+.call-remote { width: 100%; height: 100%; object-fit: contain; background: #141413; }
+.call-local {
+  position: absolute; right: 12px; bottom: 12px; width: 136px; height: 92px;
+  border-radius: 8px; object-fit: cover; background: #222;
+  border: 1.5px solid rgba(255, 255, 255, 0.25); transform: scaleX(-1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+.call-local[hidden] { display: none; }
+.call-stage-placeholder {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px;
+  color: #f3f1eb; font-size: 15px; font-weight: 500; pointer-events: none;
+}
+.call-stage-placeholder[hidden] { display: none; }
+.call-stage-placeholder small { font-size: 12px; color: rgba(243, 241, 235, 0.6); font-weight: 400; }
+.call-stage-min {
+  position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
+  border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(20, 20, 19, 0.65); color: #fff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 15px;
+}
+.call-stage-min:hover { background: rgba(20, 20, 19, 0.9); }
+
+.ice-row { flex-direction: column; align-items: stretch !important; gap: 6px !important; }
+.ice-input {
+  width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  font-family: var(--mono); font-size: 11.5px;
+}

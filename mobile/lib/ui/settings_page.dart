@@ -103,6 +103,14 @@ class SettingsPage extends StatelessWidget {
                     },
                   ),
                 ),
+              _Row(
+                title: '通话 STUN / TURN（可选）',
+                subtitle: prefs.iceServers.isEmpty ? '留空 = 仅局域网直连（不泄露 IP）' : prefs.iceServers,
+                trailing: TextButton(
+                  onPressed: () => _editIceServers(context, prefs),
+                  child: Text(prefs.iceServers.isEmpty ? '配置' : '修改'),
+                ),
+              ),
               _Row(title: '震动反馈', trailing: Switch(value: prefs.haptics, onChanged: prefs.setHaptics)),
             ]),
             const _Section('安全'),
@@ -151,6 +159,34 @@ class SettingsPage extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<void> _editIceServers(BuildContext context, Prefs prefs) async {
+  final ctl = TextEditingController(text: prefs.iceServers);
+  final saved = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('通话 STUN / TURN'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('留空 = 仅局域网直连（不泄露 IP）。跨网可填写 stun:... 或 turn:host:port|user|pass（每行一条）。', style: TextStyle(fontSize: 12.5)),
+        const SizedBox(height: 12),
+        TextField(
+          controller: ctl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: 'turn:example.com:3478|user|pass',
+            border: OutlineInputBorder(),
+          ),
+        ),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, ctl.text), child: const Text('保存')),
+      ],
+    ),
+  );
+  ctl.dispose();
+  if (saved != null) await prefs.setIceServers(saved);
 }
 
 /// 后台保持在线开关 + 系统后台限制的状态（回到这个页面时重新检测，用户可能刚从系统设置回来）

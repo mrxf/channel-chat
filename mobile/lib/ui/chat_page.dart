@@ -13,6 +13,7 @@ import '../core/media.dart';
 import '../core/native.dart';
 import '../core/net.dart';
 import '../core/prefs.dart';
+import 'call_overlay.dart';
 import 'drawer.dart';
 import 'messages.dart';
 import 'settings_page.dart';
@@ -367,7 +368,9 @@ class _ChatPageState extends State<ChatPage> with SingleTickerProviderStateMixin
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        if (_scaffold.currentState?.isDrawerOpen ?? false) {
+        if (chat.call.active && !chat.call.minimized) {
+          chat.call.setMinimized(true);
+        } else if (_scaffold.currentState?.isDrawerOpen ?? false) {
           Navigator.of(context).pop();
         } else if (chat.active != group) {
           chat.switchConv(group);
@@ -375,19 +378,35 @@ class _ChatPageState extends State<ChatPage> with SingleTickerProviderStateMixin
           Native.moveToBack();
         }
       },
-      child: Scaffold(
-        key: _scaffold,
-        drawerEdgeDragWidth: 48,
-        drawer: ConvDrawer(chat: chat, onSettings: _openSettings, onLeave: _confirmLeave),
-        onDrawerChanged: (open) {
-          if (open) _focus.unfocus();
-        },
-        appBar: PreferredSize(preferredSize: const Size.fromHeight(60), child: _TopBar(chat: chat, onMenu: () => _scaffold.currentState?.openDrawer(), onSettings: _openSettings, onClear: _confirmClear)),
-        body: AnimatedBuilder(
-          animation: _shake,
-          builder: (_, child) => Transform.translate(offset: Offset(math.sin(_shake.value * math.pi * 6) * 7 * (1 - _shake.value), 0), child: child),
-          child: Column(children: [
-            _ConnBanner(chat: chat),
+      child: Stack(children: [
+        Scaffold(
+          key: _scaffold,
+          drawerEdgeDragWidth: 48,
+          drawer: ConvDrawer(chat: chat, onSettings: _openSettings, onLeave: _confirmLeave),
+          onDrawerChanged: (open) {
+            if (open) _focus.unfocus();
+          },
+          appBar: PreferredSize(
+            preferredSize: const Size.fromHeight(60),
+            child: _TopBar(
+              chat: chat,
+              onMenu: () => _scaffold.currentState?.openDrawer(),
+              onSettings: _openSettings,
+              onClear: _confirmClear,
+              onCallAudio: () => chat.startDirectCall(video: false),
+              onCallVideo: () => chat.startDirectCall(video: true),
+            ),
+          ),
+          body: AnimatedBuilder(
+            animation: _shake,
+            builder: (_, child) => Transform.translate(offset: Offset(math.sin(_shake.value * math.pi * 6) * 7 * (1 - _shake.value), 0), child: child),
+            child: Column(children: [
+              _ConnBanner(chat: chat),
+              CallBanner(
+                chat: chat,
+                onAcceptAudio: () => chat.acceptDirectCall(video: false),
+                onAcceptVideo: () => chat.acceptDirectCall(video: true),
+              ),
             Expanded(
               child: ListenableBuilder(
                 listenable: chat,
@@ -452,7 +471,9 @@ class _ChatPageState extends State<ChatPage> with SingleTickerProviderStateMixin
             ),
           ]),
         ),
-      ),
+        ),
+        CallFullOverlay(chat: chat, onToggleCam: chat.toggleCallCam),
+      ]),
     );
   }
 }
@@ -460,11 +481,20 @@ class _ChatPageState extends State<ChatPage> with SingleTickerProviderStateMixin
 /* ---------------- 顶栏 ---------------- */
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.chat, required this.onMenu, required this.onSettings, required this.onClear});
+  const _TopBar({
+    required this.chat,
+    required this.onMenu,
+    required this.onSettings,
+    required this.onClear,
+    required this.onCallAudio,
+    required this.onCallVideo,
+  });
   final ChatController chat;
   final VoidCallback onMenu;
   final VoidCallback onSettings;
   final VoidCallback onClear;
+  final VoidCallback onCallAudio;
+  final VoidCallback onCallVideo;
 
   @override
   Widget build(BuildContext context) {
@@ -514,6 +544,18 @@ class _TopBar extends StatelessWidget {
             ]),
           ]),
           actions: [
+            if (online && chat.resolveCallTarget().peer != null) ...[
+              IconButton(
+                onPressed: onCallAudio,
+                icon: Icon(Icons.call_outlined, size: 21, color: p.text),
+                tooltip: '1 对 1 语音通话',
+              ),
+              IconButton(
+                onPressed: onCallVideo,
+                icon: Icon(Icons.videocam_outlined, size: 22, color: p.text),
+                tooltip: '1 对 1 视频通话',
+              ),
+            ],
             PopupMenuButton<String>(
               icon: Icon(Icons.more_horiz_rounded, color: p.text),
               position: PopupMenuPosition.under,

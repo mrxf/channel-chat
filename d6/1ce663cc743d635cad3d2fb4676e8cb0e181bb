@@ -1,0 +1,54 @@
+index.html
+  h_595af853e379f3 153-158,166-202,340-343
+mobile/android/app/src/main/AndroidManifest.xml
+  h_595af853e379f3 9,11,13-16
+mobile/android/app/src/main/kotlin/com/agentworkspace/agent_mobile/MainActivity.kt
+  h_595af853e379f3 30,37,99,135-147,155-160
+mobile/ios/Flutter/Debug.xcconfig
+  h_595af853e379f3 1
+mobile/ios/Flutter/Release.xcconfig
+  h_595af853e379f3 1
+mobile/ios/Podfile
+  h_595af853e379f3 1-43
+mobile/lib/chat/chat_controller.dart
+  h_595af853e379f3 17,26,45-72,76,160,308,474-534,644,746-749
+mobile/lib/core/call_engine.dart
+  h_595af853e379f3 1-627
+mobile/lib/core/native.dart
+  h_595af853e379f3 272-281
+mobile/lib/core/prefs.dart
+  h_595af853e379f3 50,108-112
+mobile/lib/ui/call_overlay.dart
+  h_595af853e379f3 1-347
+mobile/lib/ui/chat_page.dart
+  h_595af853e379f3 16,371-373,381-409,474-476,484-491,496-497,547-558
+mobile/lib/ui/settings_page.dart
+  h_595af853e379f3 106-113,164-191
+mobile/pubspec.lock
+  h_595af853e379f3 116-123,371-378,864-871,984-991
+mobile/pubspec.yaml
+  h_595af853e379f3 48
+mobile/test/call_test.dart
+  h_595af853e379f3 1-33
+src-tauri/Info.plist
+  h_595af853e379f3 15-17
+src/call.js
+  h_595af853e379f3 1-608
+src/i18n.js
+  h_595af853e379f3 278-317,611-650
+src/main.js
+  h_595af853e379f3 5,15-16,29,786,893-896,1450,1530-1531,1587,1605-1805,2384,2396,2523
+src/style.css
+  h_595af853e379f3 650-733
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "d61ce663cc743d635cad3d2fb4676e8cb0e181bb",
+  "prompts": {},
+  "humans": {
+    "h_595af853e379f3": {
+      "author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}

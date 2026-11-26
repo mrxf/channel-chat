@@ -157,8 +157,23 @@ export function createCallManager(opts) {
   }
 
   async function acquireMedia(wantVideo) {
+    const wrapErr = (code, err) => {
+      const name = err?.name || '';
+      const msg = err?.message || name || code;
+      // DOMException.code 是只读 getter，不能直接 Object.assign(err, { code })
+      return Object.assign(new Error(msg), { code, origName: name });
+    };
+    if (opts.ensureMediaPermission) {
+      const perm = await opts.ensureMediaPermission(wantVideo);
+      if (perm && (perm.audio === 'denied' || perm.audio === 'restricted')) {
+        throw wrapErr(wantVideo ? 'perm_av' : 'perm_mic');
+      }
+      if (wantVideo && perm && (perm.video === 'denied' || perm.video === 'restricted')) {
+        throw wrapErr('perm_av');
+      }
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw Object.assign(new Error('unsupported'), { code: 'unsupported' });
+      throw wrapErr('unsupported');
     }
     const constraints = {
       audio: {
@@ -174,13 +189,21 @@ export function createCallManager(opts) {
       return await navigator.mediaDevices.getUserMedia(constraints);
     } catch (err) {
       const name = err?.name || '';
-      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        throw Object.assign(err, { code: wantVideo ? 'perm_av' : 'perm_mic' });
+      if (name === 'OverconstrainedError') {
+        try {
+          return await navigator.mediaDevices.getUserMedia({ audio: true, video: !!wantVideo });
+        } catch (err2) {
+          err = err2;
+        }
       }
-      if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-        throw Object.assign(err, { code: wantVideo ? 'no_device_av' : 'no_device_mic' });
+      const n = err?.name || '';
+      if (n === 'NotAllowedError' || n === 'PermissionDeniedError') {
+        throw wrapErr(wantVideo ? 'perm_av' : 'perm_mic', err);
       }
-      throw Object.assign(err, { code: 'media_err' });
+      if (n === 'NotFoundError' || n === 'DevicesNotFoundError') {
+        throw wrapErr(wantVideo ? 'no_device_av' : 'no_device_mic', err);
+      }
+      throw wrapErr('media_err', err);
     }
   }
 
@@ -423,6 +446,13 @@ export function createCallManager(opts) {
     }
     // 语音通话中首次开启摄像头：获取视频轨并动态重协商
     try {
+      if (opts.ensureMediaPermission) {
+        const perm = await opts.ensureMediaPermission(true);
+        if (perm && (perm.video === 'denied' || perm.video === 'restricted')) {
+          opts.onError?.('perm_av');
+          return;
+        }
+      }
       const camStream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280, max: 1280 }, height: { ideal: 720, max: 720 }, frameRate: { ideal: 24, max: 30 } },
       });

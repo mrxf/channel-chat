@@ -1,4 +1,5 @@
 mod discovery;
+mod media_perm;
 mod prefs;
 mod relay;
 mod secret;
@@ -76,6 +77,7 @@ pub fn run() {
             vault::media_clear,
             prefs::prefs_load,
             prefs::prefs_save,
+            media_perm::request_media_permission,
         ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "打开 ChatBuddy", true, None::<&str>)?;

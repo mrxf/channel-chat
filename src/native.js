@@ -116,6 +116,16 @@ export const native = {
     if (inTauri) invoke('request_attention').catch(() => {});
   },
 
+  /** macOS 原生麦克风 / 摄像头权限请求（触发系统 TCC 弹窗，避免 WKWebView 静默拒权） */
+  async requestMediaPermission(video = false) {
+    if (!inTauri) return { audio: 'granted', video: video ? 'granted' : 'skipped' };
+    try {
+      return await invoke('request_media_permission', { video: !!video });
+    } catch {
+      return { audio: 'unknown', video: video ? 'unknown' : 'skipped' };
+    }
+  },
+
   async ensureNotifyPermission() {
     try {
       if (inTauri) {

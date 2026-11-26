@@ -1642,6 +1642,7 @@ const callMgr = createCallManager({
     return send({ ...payload, dm: p.cid }, p.conn);
   },
   getIceServers: () => parseIceServers(prefs.iceServers),
+  ensureMediaPermission: (video) => native.requestMediaPermission(video),
   onStateChange: (cs) => {
     if (cs.phase === 'ringing') {
       callStageMinimized = false;
@@ -1678,7 +1679,7 @@ const callMgr = createCallManager({
     }
     syncCallUI();
   },
-  onError: (code) => {
+  onError: (code, detail) => {
     const map = {
       unsupported: 'call.errUnsupported',
       perm_mic: 'call.errPermMic',
@@ -1687,7 +1688,15 @@ const callMgr = createCallManager({
       no_device_av: 'call.errNoDevice',
       offline: 'call.endOffline',
     };
-    toast(t(map[code] || 'call.errFailed'));
+    if (map[code]) {
+      toast(t(map[code]));
+    } else if (code === 'media_err') {
+      toast(detail ? `${t('call.errPermMic')}（${detail}）` : t('call.errPermMic'));
+    } else if (code === 'webrtc_err') {
+      toast(detail ? `WebRTC 初始化失败（${detail}）` : t('call.errFailed'));
+    } else {
+      toast(t('call.errFailed'));
+    }
   },
   onEnded: (reason, _peerCid, dur) => {
     if (state.boss) return;
@@ -2091,6 +2100,11 @@ async function startVoiceRecording() {
     if (prev) burn(prev, true);
   }
   try {
+    const perm = await native.requestMediaPermission(false);
+    if (perm && (perm.audio === 'denied' || perm.audio === 'restricted')) {
+      toast(t('toast.voiceNoMic'));
+      return;
+    }
     await voiceRecorder.start();
     setRecordingUI(true);
   } catch {

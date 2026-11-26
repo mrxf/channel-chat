@@ -737,23 +737,36 @@ class ImageViewerPage extends StatelessWidget {
         }
         return Scaffold(
           backgroundColor: Colors.black,
-          body: Stack(children: [
+          body: Stack(fit: StackFit.expand, children: [
             Positioned.fill(
               child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: () => Navigator.of(context).pop(),
                 child: bytes == null
                     ? const SizedBox.shrink()
-                    : InteractiveViewer(maxScale: 5, child: Center(child: Image.memory(bytes, gaplessPlayback: true))),
+                    : InteractiveViewer(
+                        minScale: 1,
+                        maxScale: 5,
+                        child: SizedBox.expand(
+                          child: Image.memory(bytes, fit: BoxFit.contain, gaplessPlayback: true),
+                        ),
+                      ),
               ),
             ),
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 4, 16, 0),
-                child: Row(children: [
-                  IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.close_rounded, color: Colors.white)),
-                  const SizedBox(width: 8),
-                  if (it.cdStart != null) Expanded(child: CountdownBar(start: it.cdStart!, seconds: it.cdSec, color: Colors.white, height: 3)),
-                ]),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 16, 0),
+                  child: Row(children: [
+                    IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.close_rounded, color: Colors.white)),
+                    const SizedBox(width: 8),
+                    if (it.cdStart != null) Expanded(child: CountdownBar(start: it.cdStart!, seconds: it.cdSec, color: Colors.white, height: 3)),
+                  ]),
+                ),
               ),
             ),
           ]),

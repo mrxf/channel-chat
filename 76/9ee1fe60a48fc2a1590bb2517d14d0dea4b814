@@ -1,0 +1,32 @@
+mobile/lib/ui/messages.dart
+  h_595af853e379f3 740,743,747-753,756-769
+src-tauri/Cargo.lock
+  h_595af853e379f3 15,18-19
+src-tauri/Cargo.toml
+  h_595af853e379f3 26-30
+src-tauri/Entitlements.plist
+  h_595af853e379f3 1-10
+src-tauri/src/lib.rs
+  h_595af853e379f3 2,80
+src-tauri/src/media_perm.rs
+  h_595af853e379f3 1-101
+src-tauri/tauri.conf.json
+  h_595af853e379f3 37-41
+src/call.js
+  h_595af853e379f3 160-174,176,192-201,203-204,206,449-455
+src/main.js
+  h_595af853e379f3 1645,1682,1691-1699,2103-2107
+src/native.js
+  h_595af853e379f3 119-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "769ee1fe60a48fc2a1590bb2517d14d0dea4b814",
+  "prompts": {},
+  "humans": {
+    "h_595af853e379f3": {
+      "author": "mrxf <zhshy123@foxmail.com>"
+    }
+  }
+}
